@@ -49,7 +49,6 @@
   background-color: rgba(0, 54, 255, 0.13);
   border: 1px solid transparent;
   box-sizing: border-box;
-  font-size: 9px;
   height: 100%;
   padding: 0 3px;
   vertical-align: top;
@@ -58,7 +57,6 @@
 
 .annotationLayer .textWidgetAnnotation textarea {
   font: message-box;
-  font-size: 9px;
   resize: none;
 }
 
@@ -87,6 +85,12 @@
   border: 1px solid transparent;
 }
 
+.annotationLayer .buttonWidgetAnnotation.checkBox input:focus,
+.annotationLayer .buttonWidgetAnnotation.radioButton input:focus {
+  background-color: transparent;
+  border: 1px solid transparent;
+}
+
 .annotationLayer .textWidgetAnnotation input.comb {
   font-family: monospace;
   padding-left: 2px;
@@ -109,6 +113,25 @@
   -moz-appearance: none;
   -ms-appearance: none;
   appearance: none;
+}
+
+.annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before {
+  content: '\2713';
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, 0);
+  bottom: 0;
+  zoom: 90%;
+  z-index: -1;
+}
+
+.annotationLayer .buttonWidgetAnnotation.radioButton input:checked + span::before {
+  content: '\2022';
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, 0);
+  bottom: 0;
+  z-index: -1;
 }
 
 .annotationLayer .popupWrapper {

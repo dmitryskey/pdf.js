@@ -191,7 +191,7 @@ describe('annotation', function() {
       var annotation = new Annotation({ dict, ref, });
       annotation.setColor('red');
 
-      expect(annotation.color).toEqual(new Uint8Array([0, 0, 0]));
+      expect(annotation.color).toEqual(null);
     });
 
     it('should set and get a transparent color', function() {

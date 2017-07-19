@@ -163,6 +163,8 @@ var Annotation = (function AnnotationClosure() {
     this.setFlags(dict.get('F'));
     this.setRectangle(dict.getArray('Rect'));
     this.setColor(dict.getArray('C'));
+    this.setBackgroundColor(dict.get('MK'));
+    this.setBorderColor(dict.get('MK'));
     this.setBorderStyle(dict);
     this.setAppearance(dict);
 
@@ -173,6 +175,8 @@ var Annotation = (function AnnotationClosure() {
     this.data.annotationFlags = this.flags;
     this.data.rect = this.rectangle;
     this.data.color = this.color;
+    this.data.backgroundColor = this.backgroundColor;
+    this.data.borderColor = this.borderColor;
     this.data.borderStyle = this.borderStyle;
     this.data.hasAppearance = !!this.appearance;
   }
@@ -275,35 +279,40 @@ var Annotation = (function AnnotationClosure() {
      *                        4 (CMYK) elements
      */
     setColor: function Annotation_setColor(color) {
-      var rgbColor = new Uint8Array(3); // Black in RGB color space (default)
-      if (!isArray(color)) {
-        this.color = rgbColor;
+      this.color = this.getColorFromArray(color);
+    },
+
+    /**
+     * Set the background color and take care of color space conversion.
+     *
+     * @public
+     * @memberof Annotation
+     * @param {Dict} dict - An appearance characteristics dictionary
+     */
+    setBackgroundColor: function Annotation_setBackroundColor(dict) {
+      if (!isDict(dict)) {
         return;
       }
 
-      switch (color.length) {
-        case 0: // Transparent, which we indicate with a null value
-          this.color = null;
-          break;
+      if (dict.has('BG')) {
+        this.backgroundColor = this.getColorFromArray(dict.getArray('BG'));
+      }
+    },
 
-        case 1: // Convert grayscale to RGB
-          ColorSpace.singletons.gray.getRgbItem(color, 0, rgbColor, 0);
-          this.color = rgbColor;
-          break;
+    /**
+     * Set the border color and take care of color space conversion.
+     *
+     * @public
+     * @memberof Annotation
+     * @param {Dict} dict - An appearance characteristic dictionary
+     */
+    setBorderColor: function Annotation_setBorderColor(dict) {
+      if (!isDict(dict)) {
+        return;
+      }
 
-        case 3: // Convert RGB percentages to RGB
-          ColorSpace.singletons.rgb.getRgbItem(color, 0, rgbColor, 0);
-          this.color = rgbColor;
-          break;
-
-        case 4: // Convert CMYK to RGB
-          ColorSpace.singletons.cmyk.getRgbItem(color, 0, rgbColor, 0);
-          this.color = rgbColor;
-          break;
-
-        default:
-          this.color = rgbColor;
-          break;
+      if (dict.has('BC')) {
+        this.borderColor = this.getColorFromArray(dict.getArray('BC'));
       }
     },
 
@@ -345,7 +354,9 @@ var Annotation = (function AnnotationClosure() {
         // case, but Adobe Reader did not implement that part of the
         // specification and instead draws no border at all, so we do the same.
         // See also https://github.com/mozilla/pdf.js/issues/6179.
-        this.borderStyle.setWidth(0);
+        // Note: it's a little bit more complicated, Reader draws no border
+        // if its color is transparent.
+        this.borderStyle.setWidth(this.borderColor === null ? 0 : 1);
       }
     },
 
@@ -450,6 +461,33 @@ var Annotation = (function AnnotationClosure() {
           return opList;
         });
       });
+    },
+
+    getColorFromArray: function Annotation_getColorFromArray(color) {
+      var rgbColor = new Uint8Array(3); // Black in RGB color space (default)
+      if (!isArray(color)) {
+        return null;
+      }
+
+      switch (color.length) {
+        case 0: // Transparent, which we indicate with a null value
+          return null;
+
+        case 1: // Convert grayscale to RGB
+          ColorSpace.singletons.gray.getRgbItem(color, 0, rgbColor, 0);
+          return rgbColor;
+
+        case 3: // Convert RGB percentages to RGB
+          ColorSpace.singletons.rgb.getRgbItem(color, 0, rgbColor, 0);
+          return rgbColor;
+
+        case 4: // Convert CMYK to RGB
+          ColorSpace.singletons.cmyk.getRgbItem(color, 0, rgbColor, 0);
+          return rgbColor;
+
+        default:
+          return rgbColor;
+      }
     },
   };
 

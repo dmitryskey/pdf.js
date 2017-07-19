@@ -17,7 +17,7 @@
 
 PDFJS.workerSrc = '../../node_modules/pdfjs-dist/build/pdf.worker.js';
 
-var DEFAULT_URL = '../../test/pdfs/f1040.pdf';
+var DEFAULT_URL = '../../test/pdfs/test 3.pdf';
 var DEFAULT_SCALE = 1.0;
 
 var container = document.getElementById('pageContainer');

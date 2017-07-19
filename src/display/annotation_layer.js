@@ -195,7 +195,12 @@ var AnnotationElement = (function AnnotationElementClosure() {
             break;
         }
 
-        if (data.color) {
+        if (data.borderColor) {
+          container.style.borderColor =
+            Util.makeCssRgb(data.borderColor[0] | 0,
+                            data.borderColor[1] | 0,
+                            data.borderColor[2] | 0);
+        } else if (data.color) {
           container.style.borderColor =
             Util.makeCssRgb(data.color[0] | 0,
                             data.color[1] | 0,
@@ -410,6 +415,25 @@ var WidgetAnnotationElement = (function WidgetAnnotationElementClosure() {
       // Show only the container for unsupported field types.
       return this.container;
     },
+
+    _setBackgroundColor:
+        function TextWidgetAnnotationElement_setBackgroundColor(
+          element, color, layerClassName, containerClassName) {
+      if (color && layerClassName && containerClassName) {
+        var bgColor = Util.makeCssRgb(
+          color[0] | 0,
+          color[1] | 0,
+          color[2] | 0);
+
+        var onFocusClass = document.createElement('style');
+        onFocusClass.innerHTML =
+          '.' + layerClassName + ' .' + containerClassName +
+          ' [name="' + element.name +
+          '"]:focus {background-color:' + bgColor + ';}';
+
+        document.body.appendChild(onFocusClass);
+      }
+    },
   });
 
   return WidgetAnnotationElement;
@@ -498,6 +522,12 @@ var TextWidgetAnnotationElement = (
         element.style.textAlign = TEXT_ALIGNMENT[this.data.textAlignment];
       }
 
+      this._setBackgroundColor(
+        element,
+        this.data.backgroundColor,
+        this.layer.className,
+        this.container.className);
+
       this.container.appendChild(element);
       return this.container;
     },
@@ -568,7 +598,11 @@ var CheckboxWidgetAnnotationElement =
         element.setAttribute('checked', true);
       }
 
+      this.container.style.fontSize = this.container.style.height;
+
       this.container.appendChild(element);
+      this.container.appendChild(document.createElement('span'));
+
       return this.container;
     },
   });
@@ -608,7 +642,11 @@ var RadioButtonWidgetAnnotationElement =
         element.setAttribute('checked', true);
       }
 
+      this.container.style.fontSize = this.container.style.height;
+
       this.container.appendChild(element);
+      this.container.appendChild(document.createElement('span'));
+
       return this.container;
     },
   });
@@ -703,6 +741,12 @@ var ChoiceWidgetAnnotationElement = (
 
         selectElement.appendChild(optionElement);
       }
+
+      this._setBackgroundColor(
+        selectElement,
+        this.data.backgroundColor,
+        this.layer.className,
+        this.container.className);
 
       this.container.appendChild(selectElement);
       return this.container;
