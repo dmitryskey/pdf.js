@@ -195,7 +195,12 @@ var AnnotationElement = (function AnnotationElementClosure() {
             break;
         }
 
-        if (data.color) {
+        if (data.borderColor) {
+          container.style.borderColor =
+            Util.makeCssRgb(data.borderColor[0] | 0,
+                            data.borderColor[1] | 0,
+                            data.borderColor[2] | 0);
+        } else if (data.color) {
           container.style.borderColor =
             Util.makeCssRgb(data.color[0] | 0,
                             data.color[1] | 0,
@@ -568,7 +573,11 @@ var CheckboxWidgetAnnotationElement =
         element.setAttribute('checked', true);
       }
 
+      this.container.style.fontSize = this.container.style.height;
+
       this.container.appendChild(element);
+      this.container.appendChild(document.createElement('span'));
+
       return this.container;
     },
   });
@@ -608,7 +617,11 @@ var RadioButtonWidgetAnnotationElement =
         element.setAttribute('checked', true);
       }
 
+      this.container.style.fontSize = this.container.style.height;
+
       this.container.appendChild(element);
+      this.container.appendChild(document.createElement('span'));
+
       return this.container;
     },
   });
