@@ -253,6 +253,12 @@ let PDFViewerApplication = {
         viewerPrefs['renderer'] = value;
       }),
       preferences.get('renderInteractiveForms').then(function resolved(value) {
+        let hash = document.location.hash.substring(1);
+        let hashParams = parseQueryString(hash);
+        if ('mode' in hashParams && hashParams['mode'] === 'edit') {
+          value = true;
+        }
+
         viewerPrefs['renderInteractiveForms'] = value;
       }),
       preferences.get('disablePageLabels').then(function resolved(value) {
@@ -265,18 +271,12 @@ let PDFViewerApplication = {
   },
 
   _initializeL10n() {
-    // Locale can be changed only when special debugging flags is present in
-    // the hash section of the URL, or development version of viewer is used.
-    // It is not possible to change locale for Firefox extension builds.
-    if (typeof PDFJSDev === 'undefined' || !PDFJSDev.test('PRODUCTION') ||
-        (!PDFJSDev.test('FIREFOX || MOZCENTRAL') &&
-         this.viewerPrefs['pdfBugEnabled'])) {
-      let hash = document.location.hash.substring(1);
-      let hashParams = parseQueryString(hash);
-      if ('locale' in hashParams) {
-        PDFJS.locale = hashParams['locale'];
-      }
+    let hash = document.location.hash.substring(1);
+    let hashParams = parseQueryString(hash);
+    if ('locale' in hashParams) {
+      PDFJS.locale = hashParams['locale'];
     }
+
     this.l10n = this.externalServices.createL10n();
     return this.l10n.getDirection().then((dir) => {
       document.getElementsByTagName('html')[0].dir = dir;
