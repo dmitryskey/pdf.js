@@ -153,7 +153,7 @@ var AnnotationElement = (function AnnotationElementClosure() {
       CustomStyle.setProp('transformOrigin', container,
                           -rect[0] + 'px ' + -rect[1] + 'px');
 
-      if (!ignoreBorder && data.borderStyle.width > 0) {
+      if (!ignoreBorder && data.borderStyle.width > 0 && data.borderColor) {
         container.style.borderWidth = data.borderStyle.width + 'px';
         if (data.borderStyle.style !== AnnotationBorderStyleType.UNDERLINE) {
           // Underline styles only have a bottom border, so we do not need
