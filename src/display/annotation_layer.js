@@ -598,6 +598,10 @@ var CheckboxWidgetAnnotationElement =
         element.setAttribute('checked', true);
       }
 
+      if (this.data.fieldValue) {
+        element.value = this.data.fieldValue;
+      }
+
       this.container.style.fontSize = this.container.style.height;
 
       this.container.appendChild(element);
@@ -640,6 +644,10 @@ var RadioButtonWidgetAnnotationElement =
       element.name = this.data.fieldName;
       if (this.data.fieldValue === this.data.buttonValue) {
         element.setAttribute('checked', true);
+      }
+
+      if (this.data.buttonValue) {
+        element.value = this.data.buttonValue;
       }
 
       this.container.style.fontSize = this.container.style.height;
