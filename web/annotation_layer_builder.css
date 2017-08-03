@@ -78,6 +78,12 @@
   border: 1px solid #000;
 }
 
+.annotationLayer .noHighlight input[disabled] {
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
 .annotationLayer .textWidgetAnnotation input:focus,
 .annotationLayer .textWidgetAnnotation textarea:focus,
 .annotationLayer .choiceWidgetAnnotation select:focus {

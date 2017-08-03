@@ -44,6 +44,9 @@ See https://github.com/adobe-type-tools/cmap-resources
     <link rel="resource" type="application/l10n" href="locale/locale.properties">
 <!--#endif-->
 
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+    <link rel="resource" type="application/l10n" href="/locale/locale.properties">
+
 <!--#if !PRODUCTION-->
     <script src="../src/shared/compatibility.js"></script>
 <!--#endif-->
@@ -62,6 +65,8 @@ See https://github.com/adobe-type-tools/cmap-resources
 <!--#else-->
 <!--#include viewer-snippet-minified.html-->
 <!--#endif-->
+
+    <script data-main="/templates/app" src="/jquery/require.js"></script>
 
   </head>
 
