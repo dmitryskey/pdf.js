@@ -44,6 +44,7 @@
 .annotationLayer .textWidgetAnnotation input,
 .annotationLayer .textWidgetAnnotation textarea,
 .annotationLayer .choiceWidgetAnnotation select,
+.annotationLayer .choiceWidgetAnnotation input,
 .annotationLayer .buttonWidgetAnnotation.checkBox input,
 .annotationLayer .buttonWidgetAnnotation.radioButton input {
   background-color: rgba(0, 54, 255, 0.13);
@@ -63,6 +64,7 @@
 .annotationLayer .textWidgetAnnotation input[disabled],
 .annotationLayer .textWidgetAnnotation textarea[disabled],
 .annotationLayer .choiceWidgetAnnotation select[disabled],
+.annotationLayer .choiceWidgetAnnotation input[disabled],
 .annotationLayer .buttonWidgetAnnotation.checkBox input[disabled],
 .annotationLayer .buttonWidgetAnnotation.radioButton input[disabled] {
   background: none;
@@ -73,6 +75,7 @@
 .annotationLayer .textWidgetAnnotation input:hover,
 .annotationLayer .textWidgetAnnotation textarea:hover,
 .annotationLayer .choiceWidgetAnnotation select:hover,
+.annotationLayer .choiceWidgetAnnotation input:hover,
 .annotationLayer .buttonWidgetAnnotation.checkBox input:hover,
 .annotationLayer .buttonWidgetAnnotation.radioButton input:hover {
   border: 1px solid #000;
@@ -86,7 +89,8 @@
 
 .annotationLayer .textWidgetAnnotation input:focus,
 .annotationLayer .textWidgetAnnotation textarea:focus,
-.annotationLayer .choiceWidgetAnnotation select:focus {
+.annotationLayer .choiceWidgetAnnotation select:focus,
+.annotationLayer .choiceWidgetAnnotation input:focus {
   background: none;
   border: 1px solid transparent;
 }
@@ -119,6 +123,46 @@
   -moz-appearance: none;
   -ms-appearance: none;
   appearance: none;
+}
+
+.annotationLayer .choiceWidgetAnnotation input + span::before {
+  content: "\25BC";
+  right: 1px;
+  top: 15%;
+  zoom: 50%;
+  position: absolute;
+}
+
+.annotationLayer .choiceWidgetAnnotation .combo {
+  position: relative;
+  display: inline-block;
+}
+
+.annotationLayer .choiceWidgetAnnotation .combo-content {
+  display: none;
+  position: absolute;
+  max-height: 100px;
+  width: 100%;
+  overflow: auto;
+  background-color: #f9f9f9;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+.annotationLayer .choiceWidgetAnnotation .combo-content a {
+  padding: 2px;
+  text-decoration: none;
+  display: block;
+  white-space: nowrap;
+}
+
+.annotationLayer .choiceWidgetAnnotation .combo-content a:hover {
+  background-color: rgba(0, 54, 255, 0.13);
+  cursor: default;
+}
+
+.annotationLayer .choiceWidgetAnnotation .show {
+  display: block;
 }
 
 .annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before {

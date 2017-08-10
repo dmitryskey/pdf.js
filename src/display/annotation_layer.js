@@ -418,20 +418,24 @@ var WidgetAnnotationElement = (function WidgetAnnotationElementClosure() {
 
     _setBackgroundColor:
         function TextWidgetAnnotationElement_setBackgroundColor(
-          element, color, layerClassName, containerClassName) {
+          element, color, layerClassName, containerClassName, onFocus) {
       if (color && layerClassName && containerClassName) {
         var bgColor = Util.makeCssRgb(
           color[0] | 0,
           color[1] | 0,
           color[2] | 0);
 
-        var onFocusClass = document.createElement('style');
-        onFocusClass.innerHTML =
-          '.' + layerClassName + ' .' + containerClassName +
-          ' [name="' + element.name +
-          '"]:focus {background-color:' + bgColor + ';}';
+        if (onFocus) {
+          var cssClass = document.createElement('style');
+          cssClass.innerHTML =
+            '.' + layerClassName + ' .' + containerClassName +
+            ' [name="' + element.name +
+            '"]:focus {background-color:' + bgColor + ';}';
 
-        document.body.appendChild(onFocusClass);
+          document.body.appendChild(cssClass);
+        } else {
+          element.style.backgroundColor = bgColor;
+        }
       }
     },
   });
@@ -526,7 +530,8 @@ var TextWidgetAnnotationElement = (
         element,
         this.data.backgroundColor,
         this.layer.className,
-        this.container.className);
+        this.container.className,
+        true);
 
       this.container.appendChild(element);
       return this.container;
@@ -685,11 +690,142 @@ var ChoiceWidgetAnnotationElement = (
     render: function ChoiceWidgetAnnotationElement_render() {
       this.container.className = 'choiceWidgetAnnotation';
 
-      var selectElement = document.createElement('select');
-      selectElement.name = this.data.fieldName;
-      selectElement.disabled = this.data.readOnly;
+      var i, ii, option;
 
-      var style = selectElement.style;
+      if (!this.data.combo) {
+        var selectElement = document.createElement('select');
+        selectElement.name = this.data.fieldName;
+        selectElement.disabled = this.data.readOnly;
+
+        var style = selectElement.style;
+
+        this._setElementFont(selectElement);
+
+        this._setBackgroundColor(
+          selectElement,
+          this.data.backgroundColor,
+          this.layer.className,
+          this.container.className,
+          true);
+
+        // List boxes have a size and (optionally) multiple selection.
+        selectElement.size = this.data.options.length;
+
+        if (this.data.multiSelect) {
+          selectElement.multiple = true;
+        }
+
+        // Insert the options into the choice field.
+        for (i = 0, ii = this.data.options.length; i < ii; i++) {
+          option = this.data.options[i];
+
+          var optionElement = document.createElement('option');
+          optionElement.textContent = option.displayValue;
+          optionElement.value = option.exportValue;
+
+          optionElement.style.color = style.color;
+          optionElement.style.fontSize = style.fontSize;
+
+          if (style.fontWeight) {
+            optionElement.style.fontWeight = style.fontWeight;
+          }
+
+          if (style.fontStyle) {
+            optionElement.style.fontStyle = style.fontStyle;
+          }
+
+          if (style.fontFamily) {
+            optionElement.style.fontFamily = style.fontFamily;
+          }
+
+          if (this.data.fieldValue.indexOf(option.displayValue) >= 0) {
+            optionElement.setAttribute('selected', true);
+          }
+
+          selectElement.appendChild(optionElement);
+        }
+
+        this.container.appendChild(selectElement);
+      } else {
+        var comboElementDiv = document.createElement('div');
+        comboElementDiv.className = 'combo';
+
+        var comboElement = document.createElement('input');
+        comboElement.type = 'text';
+        comboElement.readOnly = true;
+        comboElement.name = this.data.fieldName;
+        comboElement.style.height = this.container.style.height;
+
+        this._setElementFont(comboElement);
+
+        this._setBackgroundColor(
+          comboElement,
+          this.data.backgroundColor,
+          this.layer.className,
+          this.container.className,
+          true);
+
+        var comboContent = document.createElement('div');
+        comboContent.className = 'combo-content';
+
+        var spanElement = document.createElement('span');
+        var self = this;
+        spanElement.onclick = function() {
+          self._setBackgroundColor(
+            spanElement,
+            self.data.backgroundColor,
+            self.layer.className,
+            self.container.className,
+            false);
+
+          comboContent.classList.toggle('show');
+        };
+
+        for (i = 0, ii = this.data.options.length; i < ii; i++) {
+          option = this.data.options[i];
+
+          var aElement = document.createElement('a');
+          aElement.setAttribute('value', option.exportValue);
+          aElement.text = option.displayValue;
+
+         this._setElementFont(aElement);
+
+         this._setBackgroundColor(
+           aElement,
+           this.data.backgroundColor,
+           this.layer.className,
+           this.container.className,
+           false);
+
+          aElement.onclick = function () {
+            comboElement.value = this.text;
+            comboContent.classList.remove('show');
+          };
+
+          comboContent.append(aElement);
+        }
+
+        comboElementDiv.append(comboElement);
+        comboElementDiv.append(spanElement);
+        comboElementDiv.append(comboContent);
+
+        this.container.append(comboElementDiv);
+      }
+
+      return this.container;
+    },
+
+    /**
+     * Set element font.
+     *
+     * @private
+     * @param {HTMLElement} element
+     * @memberof ChoiceWidgetAnnotationElement
+     */
+    _setElementFont:
+        function ChoiceWidgetAnnotationElement_setElementFont(element) {
+      var style = element.style;
+
       style.color = this.data.fontColor;
       style.fontSize = this.data.fontSize + 'px';
 
@@ -710,54 +846,6 @@ var ChoiceWidgetAnnotationElement = (
           }
         }
       }
-
-      if (!this.data.combo) {
-        // List boxes have a size and (optionally) multiple selection.
-        selectElement.size = this.data.options.length;
-
-        if (this.data.multiSelect) {
-          selectElement.multiple = true;
-        }
-      }
-
-      // Insert the options into the choice field.
-      for (var i = 0, ii = this.data.options.length; i < ii; i++) {
-        var option = this.data.options[i];
-
-        var optionElement = document.createElement('option');
-        optionElement.textContent = option.displayValue;
-        optionElement.value = option.exportValue;
-
-        optionElement.style.color = style.color;
-        optionElement.style.fontSize = style.fontSize;
-
-        if (style.fontWeight) {
-          optionElement.style.fontWeight = style.fontWeight;
-        }
-
-        if (style.fontStyle) {
-          optionElement.style.fontStyle = style.fontStyle;
-        }
-
-        if (style.fontFamily) {
-          optionElement.style.fontFamily = style.fontFamily;
-        }
-
-        if (this.data.fieldValue.indexOf(option.displayValue) >= 0) {
-          optionElement.setAttribute('selected', true);
-        }
-
-        selectElement.appendChild(optionElement);
-      }
-
-      this._setBackgroundColor(
-        selectElement,
-        this.data.backgroundColor,
-        this.layer.className,
-        this.container.className);
-
-      this.container.appendChild(selectElement);
-      return this.container;
     },
   });
 
