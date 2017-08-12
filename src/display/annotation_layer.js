@@ -416,27 +416,66 @@ var WidgetAnnotationElement = (function WidgetAnnotationElementClosure() {
       return this.container;
     },
 
+    /**
+     * Set element background color
+     *
+     * @protected
+     * @param {HTMLElement} element
+     * @param {Object} color
+     * @param {String} annotation layer class name
+     * @param {String} container class name
+     * @memberof WidgetAnnotationElement
+     */
     _setBackgroundColor:
-        function TextWidgetAnnotationElement_setBackgroundColor(
-          element, color, layerClassName, containerClassName, onFocus) {
+        function WidgetAnnotationElement_setBackgroundColor(
+          element, color, layerClassName, containerClassName) {
       if (color && layerClassName && containerClassName) {
         var bgColor = Util.makeCssRgb(
           color[0] | 0,
           color[1] | 0,
           color[2] | 0);
 
-        if (onFocus) {
-          var cssClass = document.createElement('style');
-          cssClass.innerHTML =
-            '.' + layerClassName + ' .' + containerClassName +
-            ' [name="' + element.name +
-            '"]:focus {background-color:' + bgColor + ';}';
+        var cssClass = document.createElement('style');
+        cssClass.innerHTML =
+          '.' + layerClassName + ' .' + containerClassName +
+          ' [name="' + encodeURIComponent(element.name) +
+          '"]:focus {background-color:' + bgColor + ';}';
 
-          document.body.appendChild(cssClass);
-        } else {
-          element.style.backgroundColor = bgColor;
-        }
+        document.body.appendChild(cssClass);
       }
+    },
+
+    /**
+     * Get default font namer
+     *
+     * @protected
+     * @memberof WidgetAnnotationElement
+     * @returns {String}
+     */
+    _getDefaultFontName:
+        function WidgetAnnotationElement_getDefaultFontName() {
+      return 'Helvetica, sans-serif';
+    },
+
+    /**
+     * Measure annotation's text
+     *
+     * @protected
+     * @param {String} line of text
+     * @param {String} text font
+     * @memberof WidgetAnnotationElement
+     * @returns {TextMetrics}
+     */
+    _measureText:
+        function WidgetAnnotationElement_measureText(text, font) {
+      var canvas = document.getElementById('page' + this.page.pageNumber);
+      if (canvas) {
+        var ctx = canvas.getContext('2d');
+        ctx.font = font;
+        return ctx.measureText(text);
+      }
+
+      return null;
     },
   });
 
@@ -483,7 +522,7 @@ var TextWidgetAnnotationElement = (
           element.setAttribute('value', this.data.fieldValue);
         }
 
-        element.name = this.data.fieldName;
+        element.name = encodeURIComponent(this.data.fieldName);
 
         element.disabled = this.data.readOnly;
 
@@ -530,8 +569,7 @@ var TextWidgetAnnotationElement = (
         element,
         this.data.backgroundColor,
         this.layer.className,
-        this.container.className,
-        true);
+        this.container.className);
 
       this.container.appendChild(element);
       return this.container;
@@ -549,23 +587,52 @@ var TextWidgetAnnotationElement = (
         function TextWidgetAnnotationElement_setTextStyle(element, font) {
       // TODO: This duplicates some of the logic in CanvasGraphics.setFont().
       var style = element.style;
-      style.color = this.data.fontColor;
-      style.fontSize = this.data.fontSize + 'px';
-      style.direction = (this.data.fontDirection < 0 ? 'rtl' : 'ltr');
 
-      if (!font) {
-        return;
+      if (this.data.fontColor) {
+        style.color = this.data.fontColor;
       }
 
-      style.fontWeight = (font.black ?
-        (font.bold ? '900' : 'bold') :
-        (font.bold ? 'bold' : 'normal'));
-      style.fontStyle = (font.italic ? 'italic' : 'normal');
+      if (this.data.fontSize) {
+        style.fontSize = this.data.fontSize + 'px';
+      }
 
-      // Use a reasonable default font if the font doesn't specify a fallback.
-      var fontFamily = font.loadedName ? '"' + font.loadedName + '", ' : '';
-      var fallbackName = font.fallbackName || 'Helvetica, sans-serif';
-      style.fontFamily = fontFamily + fallbackName;
+      if (this.data.fontDirection) {
+        style.direction = (this.data.fontDirection < 0 ? 'rtl' : 'ltr');
+      }
+
+      if (font) {
+        style.fontWeight = (font.black ?
+          (font.bold ? '900' : 'bold') :
+          (font.bold ? 'bold' : 'normal'));
+        style.fontStyle = (font.italic ? 'italic' : 'normal');
+
+        // Use a reasonable default font if the font doesn't specify a fallback.
+        var fontFamily = font.loadedName ? '"' + font.loadedName + '", ' : '';
+        var fallbackName = font.fallbackName || this._getDefaultFontName();
+        style.fontFamily = fontFamily + fallbackName;
+      }
+
+      // Auto size
+      if (!style.fontSize && !this.data.multiLine) {
+        style.fontSize = '9px';
+        var self = this;
+        element.onblur = function() {
+          var maxHeight = parseInt(self.container.style.height);
+          for (var fSize = 2; fSize <= maxHeight; fSize += 0.5) {
+            var m = self._measureText(element.value,
+              (style.fontStyle ? style.fontStyle + ' ' : '') +
+              (style.fontWeight ? style.fontWeight + ' ' : '') +
+              fSize + 'px ' +
+              (style.fontFamily || self._getDefaultFontName()));
+
+            if (m.width > parseInt(self.container.style.width)) {
+              break;
+            }
+          }
+
+          style.fontSize = --fSize + 'px';
+        };
+      }
     },
   });
 
@@ -596,7 +663,7 @@ var CheckboxWidgetAnnotationElement =
       this.container.className = 'buttonWidgetAnnotation checkBox';
 
       var element = document.createElement('input');
-      element.name = this.data.fieldName;
+      element.name = encodeURIComponent(this.data.fieldName);
       element.disabled = this.data.readOnly;
       element.type = 'checkbox';
       if (this.data.fieldValue && this.data.fieldValue !== 'Off') {
@@ -643,10 +710,10 @@ var RadioButtonWidgetAnnotationElement =
       this.container.className = 'buttonWidgetAnnotation radioButton';
 
       var element = document.createElement('input');
-      element.name = this.data.fieldName;
+      element.name = encodeURIComponent(this.data.fieldName);
       element.disabled = this.data.readOnly;
       element.type = 'radio';
-      element.name = this.data.fieldName;
+      element.name = encodeURIComponent(this.data.fieldName);
       if (this.data.fieldValue === this.data.buttonValue) {
         element.setAttribute('checked', true);
       }
@@ -690,14 +757,15 @@ var ChoiceWidgetAnnotationElement = (
     render: function ChoiceWidgetAnnotationElement_render() {
       this.container.className = 'choiceWidgetAnnotation';
 
-      var i, ii, option;
+      var i, ii, option, style;
+      var itemName = encodeURIComponent(this.data.fieldName) + '_item';
 
       if (!this.data.combo) {
         var selectElement = document.createElement('select');
-        selectElement.name = this.data.fieldName;
+        selectElement.name = encodeURIComponent(this.data.fieldName);
         selectElement.disabled = this.data.readOnly;
 
-        var style = selectElement.style;
+        style = selectElement.style;
 
         this._setElementFont(selectElement);
 
@@ -705,8 +773,7 @@ var ChoiceWidgetAnnotationElement = (
           selectElement,
           this.data.backgroundColor,
           this.layer.className,
-          this.container.className,
-          true);
+          this.container.className);
 
         // List boxes have a size and (optionally) multiple selection.
         selectElement.size = this.data.options.length;
@@ -722,21 +789,7 @@ var ChoiceWidgetAnnotationElement = (
           var optionElement = document.createElement('option');
           optionElement.textContent = option.displayValue;
           optionElement.value = option.exportValue;
-
-          optionElement.style.color = style.color;
-          optionElement.style.fontSize = style.fontSize;
-
-          if (style.fontWeight) {
-            optionElement.style.fontWeight = style.fontWeight;
-          }
-
-          if (style.fontStyle) {
-            optionElement.style.fontStyle = style.fontStyle;
-          }
-
-          if (style.fontFamily) {
-            optionElement.style.fontFamily = style.fontFamily;
-          }
+          optionElement.setAttribute('name', itemName);
 
           if (this.data.fieldValue.indexOf(option.displayValue) >= 0) {
             optionElement.setAttribute('selected', true);
@@ -753,8 +806,11 @@ var ChoiceWidgetAnnotationElement = (
         var comboElement = document.createElement('input');
         comboElement.type = 'text';
         comboElement.readOnly = true;
-        comboElement.name = this.data.fieldName;
+        comboElement.name = encodeURIComponent(this.data.fieldName);
         comboElement.style.height = this.container.style.height;
+        comboElement.style.width = this.container.style.width;
+
+        style = comboElement.style;
 
         this._setElementFont(comboElement);
 
@@ -762,22 +818,20 @@ var ChoiceWidgetAnnotationElement = (
           comboElement,
           this.data.backgroundColor,
           this.layer.className,
-          this.container.className,
-          true);
+          this.container.className);
 
         var comboContent = document.createElement('div');
         comboContent.className = 'combo-content';
 
-        var spanElement = document.createElement('span');
-        var self = this;
-        spanElement.onclick = function() {
-          self._setBackgroundColor(
-            spanElement,
-            self.data.backgroundColor,
-            self.layer.className,
-            self.container.className,
-            false);
+        comboElement.onblur = function() {
+          if (!this.selected) {
+            comboContent.classList.remove('show');
+          }
+        };
 
+        var spanElement = document.createElement('span');
+        spanElement.onclick = function() {
+          comboElement.focus();
           comboContent.classList.toggle('show');
         };
 
@@ -787,22 +841,48 @@ var ChoiceWidgetAnnotationElement = (
           var aElement = document.createElement('a');
           aElement.setAttribute('value', option.exportValue);
           aElement.text = option.displayValue;
+          aElement.name = itemName;
 
-         this._setElementFont(aElement);
-
-         this._setBackgroundColor(
-           aElement,
-           this.data.backgroundColor,
-           this.layer.className,
-           this.container.className,
-           false);
+          var self = this;
 
           aElement.onclick = function () {
             comboElement.value = this.text;
             comboContent.classList.remove('show');
+            comboElement.focus();
+
+            // Auto size
+            if (comboElement.autoSize) {
+              var maxHeight = parseInt(self.container.style.height);
+              for (var fSize = 2; fSize <= maxHeight; fSize += 0.5) {
+                var m = self._measureText(this.text,
+                  (style.fontStyle ? style.fontStyle + ' ' : '') +
+                  (style.fontWeight ? style.fontWeight + ' ' : '') +
+                  fSize + 'px ' +
+                  (style.fontFamily || self._getDefaultFontName()));
+
+                if (m.width > parseInt(self.container.style.width)) {
+                  break;
+                }
+              }
+
+              style.fontSize = --fSize + 'px';
+            }
+          };
+
+          aElement.onmouseover = function () {
+            comboElement.selected = true;
+          };
+
+          aElement.onmouseout = function () {
+            comboElement.selected = false;
           };
 
           comboContent.append(aElement);
+        }
+
+        if (!style.fontSize) {
+          comboElement.autoSize = true;
+          style.fontSize = '9px';
         }
 
         comboElementDiv.append(comboElement);
@@ -811,6 +891,31 @@ var ChoiceWidgetAnnotationElement = (
 
         this.container.append(comboElementDiv);
       }
+
+      var styleExpression = '';
+
+      if (this.data.backgroundColor) {
+        var bgColor = Util.makeCssRgb(
+          this.data.backgroundColor[0] | 0,
+          this.data.backgroundColor[1] | 0,
+          this.data.backgroundColor[2] | 0);
+
+        styleExpression = 'background-color:' + bgColor + ';';
+      }
+
+      styleExpression +=
+        (style.color ? 'color:' + style.color + ';' : '') +
+        (style.fontSize ? 'font-size:' + style.fontSize + ';' : '') +
+        (style.fontWeight ? 'font-weight:' + style.fontWeight + ';' : '') +
+        (style.fontStyle ? 'font-style:' + style.fontStyle + ';' : '') +
+        (style.fontFamily ? 'font-family:' + style.fontFamily + ';' : '');
+
+      var cssClass = document.createElement('style');
+      cssClass.innerHTML =
+        '.' + this.layer.className + ' .' + this.container.className +
+        ' [name="' + itemName + '"]{' + styleExpression + '}';
+
+      document.body.appendChild(cssClass);
 
       return this.container;
     },
@@ -826,8 +931,13 @@ var ChoiceWidgetAnnotationElement = (
         function ChoiceWidgetAnnotationElement_setElementFont(element) {
       var style = element.style;
 
-      style.color = this.data.fontColor;
-      style.fontSize = this.data.fontSize + 'px';
+      if (this.data.fontColor) {
+        style.color = this.data.fontColor;
+      }
+
+      if (this.data.fontSize) {
+        style.fontSize = this.data.fontSize + 'px';
+      }
 
       if (this.data.fontRefName) {
         var fonts = this.data.annotationFonts;
@@ -840,7 +950,7 @@ var ChoiceWidgetAnnotationElement = (
             style.fontStyle = font.italic ? 'italic' : 'normal';
             var fontFamily = font.loadedName ? '"' +
                                font.loadedName + '", ' : '';
-            var fallbackName = font.fallbackName || 'Helvetica, sans-serif';
+            var fallbackName = font.fallbackName || this._getDefaultFontName();
             style.fontFamily = fontFamily + fallbackName;
             break;
           }
@@ -1343,6 +1453,7 @@ var AnnotationLayer = (function AnnotationLayerClosure() {
         if (!data) {
           continue;
         }
+
         var element = annotationElementFactory.create({
           data,
           layer: parameters.div,
