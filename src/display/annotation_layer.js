@@ -713,7 +713,6 @@ var RadioButtonWidgetAnnotationElement =
       element.name = encodeURIComponent(this.data.fieldName);
       element.disabled = this.data.readOnly;
       element.type = 'radio';
-      element.name = encodeURIComponent(this.data.fieldName);
       if (this.data.fieldValue === this.data.buttonValue) {
         element.setAttribute('checked', true);
       }
