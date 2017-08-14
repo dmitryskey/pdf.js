@@ -161,6 +161,7 @@
 }
 
 .annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before {
+  font-family: 'sans-serif';
   content: '\2713';
   position: absolute;
   left: 50%;
@@ -171,6 +172,7 @@
 }
 
 .annotationLayer .buttonWidgetAnnotation.radioButton input:checked + span::before {
+  font-family: 'sans-serif';
   content: '\2022';
   position: absolute;
   left: 50%;
