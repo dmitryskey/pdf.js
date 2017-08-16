@@ -803,6 +803,8 @@ var ChoiceWidgetAnnotationElement = (
 
         style = comboElement.style;
 
+        var self = this;
+
         this._setElementFont(comboElement);
 
         this._setBackgroundColor(
@@ -817,13 +819,17 @@ var ChoiceWidgetAnnotationElement = (
         comboElement.onblur = function() {
           if (!this.selected) {
             comboContent.classList.remove('show');
+            self.layer.classList.remove('nohover');
           }
         };
 
         var spanElement = document.createElement('span');
         spanElement.onclick = function() {
-          comboElement.focus();
-          comboContent.classList.toggle('show');
+          if (!comboElement.disabled) {
+            comboElement.focus();
+            comboContent.classList.toggle('show');
+            self.layer.classList.toggle('nohover');
+          }
         };
 
         for (i = 0, ii = this.data.options.length; i < ii; i++) {
@@ -834,11 +840,11 @@ var ChoiceWidgetAnnotationElement = (
           aElement.text = option.displayValue;
           aElement.name = itemName;
 
-          var self = this;
 
           aElement.onclick = function () {
             comboElement.value = this.text;
             comboContent.classList.remove('show');
+            self.layer.classList.remove('nohover');
             comboElement.focus();
 
             // Auto size

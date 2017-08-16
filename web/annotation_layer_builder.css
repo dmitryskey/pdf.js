@@ -72,12 +72,12 @@
   cursor: not-allowed;
 }
 
-.annotationLayer .textWidgetAnnotation input:hover,
-.annotationLayer .textWidgetAnnotation textarea:hover,
-.annotationLayer .choiceWidgetAnnotation select:hover,
-.annotationLayer .choiceWidgetAnnotation input:hover,
-.annotationLayer .buttonWidgetAnnotation.checkBox input:hover,
-.annotationLayer .buttonWidgetAnnotation.radioButton input:hover {
+.annotationLayer:not(.nohover) .textWidgetAnnotation input:hover,
+.annotationLayer:not(.nohover) .textWidgetAnnotation textarea:hover,
+.annotationLayer:not(.nohover) .choiceWidgetAnnotation select:hover,
+.annotationLayer:not(.nohover) .choiceWidgetAnnotation input:hover,
+.annotationLayer:not(.nohover) .buttonWidgetAnnotation.checkBox input:hover,
+.annotationLayer:not(.nohover) .buttonWidgetAnnotation.radioButton input:hover {
   border: 1px solid #000;
 }
 
