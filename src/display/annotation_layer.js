@@ -819,7 +819,8 @@ var ChoiceWidgetAnnotationElement = (
         comboElement.onblur = function() {
           if (!this.selected) {
             comboContent.classList.remove('show');
-            self.layer.classList.remove('nohover');
+            self.container.style.position = '';
+            self.container.style.zIndex = '';
           }
         };
 
@@ -828,7 +829,8 @@ var ChoiceWidgetAnnotationElement = (
           if (!comboElement.disabled) {
             comboElement.focus();
             comboContent.classList.toggle('show');
-            self.layer.classList.toggle('nohover');
+            self.container.style.position = 'absolute';
+            self.container.style.zIndex = '100';
           }
         };
 
@@ -844,7 +846,8 @@ var ChoiceWidgetAnnotationElement = (
           aElement.onclick = function () {
             comboElement.value = this.text;
             comboContent.classList.remove('show');
-            self.layer.classList.remove('nohover');
+            self.container.style.position = 'absolute';
+            self.container.style.zIndex = '100';
             comboElement.focus();
 
             // Auto size
