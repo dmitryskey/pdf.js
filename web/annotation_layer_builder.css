@@ -72,7 +72,7 @@
   cursor: not-allowed;
 }
 
-.annotationLayer .textWidgetAnnotation input:hover,
+.annotationLayer::not(.noHighlight) .textWidgetAnnotation input:hover,
 .annotationLayer .textWidgetAnnotation textarea:hover,
 .annotationLayer .choiceWidgetAnnotation select:hover,
 .annotationLayer .choiceWidgetAnnotation input:hover,
@@ -81,13 +81,13 @@
   border: 1px solid #000;
 }
 
-.annotationLayer .noHighlight input[disabled] {
+.annotationLayer .textWidgetAnnotation input[icon] {
   background: none;
   border: 1px solid transparent;
   cursor: pointer;
 }
 
-.annotationLayer .textWidgetAnnotation input:focus,
+.annotationLayer::not(.noHighlight) .textWidgetAnnotation input:focus,
 .annotationLayer .textWidgetAnnotation textarea:focus,
 .annotationLayer .choiceWidgetAnnotation select:focus,
 .annotationLayer .choiceWidgetAnnotation input:focus {
