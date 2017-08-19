@@ -85,6 +85,7 @@
   background: none;
   border: 1px solid transparent;
   cursor: pointer;
+  caret-color: transparent;
 }
 
 .annotationLayer::not(.noHighlight) .textWidgetAnnotation input:focus,
