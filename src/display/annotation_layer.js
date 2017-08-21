@@ -854,7 +854,8 @@ var ChoiceWidgetAnnotationElement = (
 
           aElement.onclick = function () {
             comboElement.value = this.text;
-            comboElement.select();
+            // simulate smart I-9
+            // comboElement.select();
             comboContent.classList.remove('show');
             self.container.style.position = '';
             self.container.style.zIndex = '';
