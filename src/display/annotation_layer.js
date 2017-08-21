@@ -813,9 +813,19 @@ var ChoiceWidgetAnnotationElement = (
           this.layer.className,
           this.container.className);
 
+        var onClickFunc = function() {
+          if (!comboElement.disabled) {
+            comboElement.focus();
+            comboContent.classList.toggle('show');
+            self.container.style.position = 'absolute';
+            self.container.style.zIndex = '100';
+          }
+        };
+
         var comboContent = document.createElement('div');
         comboContent.className = 'combo-content';
 
+        comboElement.onclick = onClickFunc;
         comboElement.onblur = function() {
           if (!this.selected) {
             comboContent.classList.remove('show');
@@ -824,15 +834,9 @@ var ChoiceWidgetAnnotationElement = (
           }
         };
 
+
         var spanElement = document.createElement('span');
-        spanElement.onclick = function() {
-          if (!comboElement.disabled) {
-            comboElement.focus();
-            comboContent.classList.toggle('show');
-            self.container.style.position = 'absolute';
-            self.container.style.zIndex = '100';
-          }
-        };
+        spanElement.onclick = onClickFunc;
 
         for (i = 0, ii = this.data.options.length; i < ii; i++) {
           option = this.data.options[i];
@@ -853,7 +857,7 @@ var ChoiceWidgetAnnotationElement = (
             // Auto size
             if (comboElement.autoSize) {
               var maxHeight = parseInt(self.container.style.height);
-              for (var fSize = 2; fSize <= maxHeight; fSize += 0.5) {
+              for (var fSize = 2; fSize < maxHeight - 2; fSize += 0.2) {
                 var m = self._measureText(this.text,
                   (style.fontStyle ? style.fontStyle + ' ' : '') +
                   (style.fontWeight ? style.fontWeight + ' ' : '') +
