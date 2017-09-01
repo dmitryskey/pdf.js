@@ -1275,16 +1275,14 @@ class AnnotationLayer {
    * @param {AnnotationLayerParameters} parameters
    * @memberof AnnotationLayer
    */
-  render(parameters) {
-    let annotationElementFactory = new AnnotationElementFactory();
-
+  static render(parameters) {
     for (let i = 0, ii = parameters.annotations.length; i < ii; i++) {
       let data = parameters.annotations[i];
       if (!data) {
         continue;
       }
 
-      let element = annotationElementFactory.create({
+      let element = AnnotationElementFactory.create({
         data,
         layer: parameters.div,
         page: parameters.page,
