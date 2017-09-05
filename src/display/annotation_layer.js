@@ -556,7 +556,7 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
     if (!style.fontSize && !this.data.multiLine) {
       style.fontSize = '9px';
       let self = this;
-      element.onblur = () => {
+      element.onblur = function() {
         let maxHeight = parseInt(self.container.style.height);
 
         let fSize = 2;
@@ -727,7 +727,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let comboContent = document.createElement('div');
       comboContent.className = 'combo-content';
 
-      comboElement.onblur = () => {
+      comboElement.onblur = function() {
         if (!this.selected) {
           comboContent.classList.remove('show');
           self.container.style.position = '';
@@ -736,7 +736,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       };
 
       let spanElement = document.createElement('span');
-      spanElement.onclick = () => {
+      spanElement.onclick = function() {
         if (!comboElement.disabled) {
           comboElement.focus();
           comboContent.classList.toggle('show');
@@ -753,7 +753,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         aElement.text = option.displayValue;
         aElement.name = itemName;
 
-        aElement.onclick = () => {
+        aElement.onclick = function() {
           comboElement.value = this.text;
           comboElement.select();
           comboContent.classList.remove('show');
@@ -781,11 +781,11 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           }
         };
 
-        aElement.onmouseover = () => {
+        aElement.onmouseover = function() {
           comboElement.selected = true;
         };
 
-        aElement.onmouseout = () => {
+        aElement.onmouseout = function() {
           comboElement.selected = false;
         };
 
