@@ -158,6 +158,7 @@
 
 .annotationLayer .choiceWidgetAnnotation .show {
   display: block;
+  margin-top: -3px;
 }
 
 .annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before {
