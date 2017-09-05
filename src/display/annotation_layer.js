@@ -556,7 +556,7 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
     if (!style.fontSize && !this.data.multiLine) {
       style.fontSize = '9px';
       let self = this;
-      element.onblur = () => {
+      element.onblur = function() {
         let maxHeight = parseInt(self.container.style.height);
 
         let fSize = 2;
@@ -704,6 +704,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
     } else {
       let comboElementDiv = document.createElement('div');
       comboElementDiv.className = 'combo';
+      comboElementDiv.style.height = this.container.style.height;
 
       let comboElement = document.createElement('input');
       comboElement.type = 'text';
@@ -727,7 +728,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let comboContent = document.createElement('div');
       comboContent.className = 'combo-content';
 
-      comboElement.onblur = () => {
+      comboElement.onblur = function() {
         if (!this.selected) {
           comboContent.classList.remove('show');
           self.container.style.position = '';
@@ -736,7 +737,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       };
 
       let spanElement = document.createElement('span');
-      spanElement.onclick = () => {
+      spanElement.onclick = function() {
         if (!comboElement.disabled) {
           comboElement.focus();
           comboContent.classList.toggle('show');
@@ -745,15 +746,51 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         }
       };
 
+      let comboWidth = parseFloat(self.container.style.width);
+      let increaseComboWidth = false;
+
+      let outer = document.createElement('div');
+      outer.style.visibility = 'hidden';
+      outer.style.width = '100px';
+      outer.style.msOverflowStyle = 'scrollbar'; // needed for WinJS apps
+
+      document.body.appendChild(outer);
+
+      let widthNoScroll = outer.offsetWidth;
+      // force scrollbars
+      outer.style.overflow = 'scroll';
+
+      // add innerdiv
+      let inner = document.createElement('div');
+      inner.style.width = '100%';
+      outer.appendChild(inner);
+
+      let widthWithScroll = inner.offsetWidth;
+
+      // remove divs
+      outer.parentNode.removeChild(outer);
+      let scrollbarWidth = 0; // widthNoScroll - widthWithScroll;
+
       for (i = 0, ii = this.data.options.length; i < ii; i++) {
         option = this.data.options[i];
 
-        let aElement = document.createElement('a');
+        var aElement = document.createElement('a');
         aElement.setAttribute('value', option.exportValue);
         aElement.text = option.displayValue;
         aElement.name = itemName;
 
-        aElement.onclick = () => {
+        var aElementWidth = self._measureText(aElement.text,
+            (style.fontStyle ? style.fontStyle + ' ' : '') +
+            (style.fontWeight ? style.fontWeight + ' ' : '') +
+            (style.fontSize ? style.fontSize : '9') + 'px ' +
+            (style.fontFamily || self._getDefaultFontName()));
+
+        if (aElementWidth.width + scrollbarWidth > comboWidth) {
+          comboWidth = aElementWidth.width;
+          increaseComboWidth = true;
+        }
+
+        aElement.onclick = function() {
           comboElement.value = this.text;
           comboElement.select();
           comboContent.classList.remove('show');
@@ -781,15 +818,19 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           }
         };
 
-        aElement.onmouseover = () => {
+        aElement.onmouseover = function() {
           comboElement.selected = true;
         };
 
-        aElement.onmouseout = () => {
+        aElement.onmouseout = function() {
           comboElement.selected = false;
         };
 
         comboContent.append(aElement);
+      }
+
+      if (increaseComboWidth) {
+        comboContent.style.width = comboWidth + scrollbarWidth + 'px';
       }
 
       if (!style.fontSize) {
