@@ -151,7 +151,6 @@
 }
 
 .annotationLayer .choiceWidgetAnnotation .combo-content a {
-  padding: 2px;
   text-decoration: none;
   display: block;
   white-space: nowrap;
@@ -165,6 +164,7 @@
 
 .annotationLayer .choiceWidgetAnnotation .show {
   display: block;
+  margin-top: -3px;
 }
 
 .annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before {
