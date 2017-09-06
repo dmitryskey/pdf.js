@@ -556,11 +556,11 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
     if (!style.fontSize && !this.data.multiLine) {
       style.fontSize = '9px';
       let self = this;
-      element.onblur = function() {
+      element.onblur = () => {
         let maxHeight = parseInt(self.container.style.height);
 
         let fSize = 2;
-        for (fSize = 2; fSize < maxHeight - 2; fSize += 0.2) {
+        for (fSize = 2; fSize < maxHeight - 2; fSize += 0.1) {
           let m = self._measureText(element.value,
             (style.fontStyle ? style.fontStyle + ' ' : '') +
             (style.fontWeight ? style.fontWeight + ' ' : '') +
@@ -769,7 +769,9 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       // remove divs
       outer.parentNode.removeChild(outer);
-      let scrollbarWidth = 0; // widthNoScroll - widthWithScroll;
+      let scrollbarWidth = widthNoScroll - widthWithScroll;
+
+      let aElementPadding = 2;
 
       for (i = 0, ii = this.data.options.length; i < ii; i++) {
         option = this.data.options[i];
@@ -778,6 +780,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         aElement.setAttribute('value', option.exportValue);
         aElement.text = option.displayValue;
         aElement.name = itemName;
+        aElement.style.padding = aElementPadding + 'px';
 
         var aElementWidth = self._measureText(aElement.text,
             (style.fontStyle ? style.fontStyle + ' ' : '') +
@@ -785,7 +788,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
             (style.fontSize ? style.fontSize : '9') + 'px ' +
             (style.fontFamily || self._getDefaultFontName()));
 
-        if (aElementWidth.width + scrollbarWidth > comboWidth) {
+        if (aElementWidth.width + scrollbarWidth +
+            aElementPadding * 2 > comboWidth) {
           comboWidth = aElementWidth.width;
           increaseComboWidth = true;
         }
@@ -802,7 +806,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
             let maxHeight = parseInt(self.container.style.height);
 
             let fSize = 2;
-            for (fSize = 2; fSize < maxHeight - 2; fSize += 0.2) {
+            for (fSize = 2; fSize < maxHeight - 2; fSize += 0.1) {
               let m = self._measureText(this.text,
                 (style.fontStyle ? style.fontStyle + ' ' : '') +
                 (style.fontWeight ? style.fontWeight + ' ' : '') +
@@ -830,7 +834,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       }
 
       if (increaseComboWidth) {
-        comboContent.style.width = comboWidth + scrollbarWidth + 'px';
+        comboContent.style.width = (comboWidth + scrollbarWidth +
+            aElementPadding * 2) + 'px';
       }
 
       if (!style.fontSize) {
