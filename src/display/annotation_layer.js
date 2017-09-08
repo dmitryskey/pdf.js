@@ -663,7 +663,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     this.container.className = 'choiceWidgetAnnotation';
 
-    let i, ii, option, style;
+    let i, ii, style;
     let itemName = encodeURIComponent(this.data.fieldName) + '_item';
 
     if (!this.data.combo) {
@@ -690,7 +690,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       // Insert the options into the choice field.
       for (i = 0, ii = this.data.options.length; i < ii; i++) {
-        option = this.data.options[i];
+        let option = this.data.options[i];
 
         let optionElement = document.createElement('option');
         optionElement.textContent = option.displayValue;
@@ -732,6 +732,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let comboContent = document.createElement('div');
       comboContent.className = 'combo-content';
 
+      // In ES6 () => syntax causes transpiler conversion of
+      // 'this' into the class reference
       comboElement.onblur = function() {
         if (!this.selected) {
           comboContent.classList.remove('show');
@@ -741,7 +743,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       };
 
       let spanElement = document.createElement('span');
-      spanElement.onclick = function() {
+      spanElement.onclick = () => {
         if (!comboElement.disabled) {
           comboElement.focus();
           comboContent.classList.toggle('show');
@@ -778,15 +780,15 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let aElementPadding = 2;
 
       for (i = 0, ii = this.data.options.length; i < ii; i++) {
-        option = this.data.options[i];
+        let optionItem = this.data.options[i];
 
-        var aElement = document.createElement('a');
-        aElement.setAttribute('value', option.exportValue);
-        aElement.text = option.displayValue;
+        let aElement = document.createElement('a');
+        aElement.setAttribute('value', optionItem.exportValue);
+        aElement.text = optionItem.displayValue;
         aElement.name = itemName;
         aElement.style.padding = aElementPadding + 'px';
 
-        var aElementWidth = self._measureText(aElement.text,
+        let aElementWidth = self._measureText(aElement.text,
             (style.fontStyle ? style.fontStyle + ' ' : '') +
             (style.fontWeight ? style.fontWeight + ' ' : '') +
             (style.fontSize ? style.fontSize : '9') + 'px ' +
@@ -798,6 +800,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           increaseComboWidth = true;
         }
 
+        // In ES6 () => syntax causes transpiler conversion of
+        // 'this' into the class reference
         aElement.onclick = function() {
           comboElement.value = this.text;
           comboElement.select();
@@ -826,15 +830,15 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           }
         };
 
-        aElement.onmouseover = function() {
+        aElement.onmouseover = () => {
           comboElement.selected = true;
         };
 
-        aElement.onmouseout = function() {
+        aElement.onmouseout = () => {
           comboElement.selected = false;
         };
 
-        comboContent.append(aElement);
+        comboContent.appendChild(aElement);
       }
 
       if (increaseComboWidth) {
@@ -847,11 +851,11 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         style.fontSize = '9px';
       }
 
-      comboElementDiv.append(comboElement);
-      comboElementDiv.append(spanElement);
-      comboElementDiv.append(comboContent);
+      comboElementDiv.appendChild(comboElement);
+      comboElementDiv.appendChild(spanElement);
+      comboElementDiv.appendChild(comboContent);
 
-      this.container.append(comboElementDiv);
+      this.container.appendChild(comboElementDiv);
     }
 
     let styleExpression = '';
