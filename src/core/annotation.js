@@ -97,6 +97,12 @@ class AnnotationFactory {
       case 'Line':
         return Promise.resolve(new LineAnnotation(parameters));
 
+      case 'Square':
+        return new SquareAnnotation(parameters);
+
+      case 'Circle':
+        return new CircleAnnotation(parameters);
+
       case 'Highlight':
         return Promise.resolve(new HighlightAnnotation(parameters));
 
@@ -510,7 +516,7 @@ class AnnotationBorderStyle {
    * @param {integer} width - The width
    */
   setWidth(width) {
-    if (width === (width | 0)) {
+    if (Number.isInteger(width)) {
       this.width = width;
     }
   }
@@ -597,7 +603,7 @@ class AnnotationBorderStyle {
    * @param {integer} radius - The horizontal corner radius
    */
   setHorizontalCornerRadius(radius) {
-    if (radius === (radius | 0)) {
+    if (Number.isInteger(radius)) {
       this.horizontalCornerRadius = radius;
     }
   }
@@ -610,7 +616,7 @@ class AnnotationBorderStyle {
    * @param {integer} radius - The vertical corner radius
    */
   setVerticalCornerRadius(radius) {
-    if (radius === (radius | 0)) {
+    if (Number.isInteger(radius)) {
       this.verticalCornerRadius = radius;
     }
   }
@@ -1000,6 +1006,24 @@ class LineAnnotation extends Annotation {
     let dict = parameters.dict;
     this.data.lineCoordinates = Util.normalizeRect(dict.getArray('L'));
     this._preparePopup(dict);
+  }
+}
+
+class SquareAnnotation extends Annotation {
+  constructor(parameters) {
+    super(parameters);
+
+    this.data.annotationType = AnnotationType.SQUARE;
+    this._preparePopup(parameters.dict);
+  }
+}
+
+class CircleAnnotation extends Annotation {
+  constructor(parameters) {
+    super(parameters);
+
+    this.data.annotationType = AnnotationType.CIRCLE;
+    this._preparePopup(parameters.dict);
   }
 }
 
