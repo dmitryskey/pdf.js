@@ -14,8 +14,9 @@
  */
 
 import {
-  AnnotationBorderStyleType, AnnotationFieldFlag, AnnotationFlag,
-  AnnotationType, OPS, stringToBytes, stringToPDFString, Util, warn
+  AnnotationBorderStyleType, AnnotationCheckboxType, AnnotationFieldFlag,
+  AnnotationFlag, AnnotationType, OPS, stringToBytes, stringToPDFString,
+  Util, warn
 } from '../shared/util';
 import { Catalog, FileSpec, ObjectLoader } from './obj';
 import { Dict, isDict, isName, isRef, isStream } from './primitives';
@@ -841,10 +842,39 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
     this.data.checkBox = !this.hasFieldFlag(AnnotationFieldFlag.RADIO) &&
                          !this.hasFieldFlag(AnnotationFieldFlag.PUSHBUTTON);
     if (this.data.checkBox) {
-      if (!isName(this.data.fieldValue)) {
+      if (isName(this.data.fieldValue)) {
+        this.data.fieldValue = this.data.fieldValue.name;
+      }
+
+      this.data.checkBoxType = AnnotationCheckboxType.CHECK;
+
+      let appearanceCharacteristics = params.dict.get('MK');
+      if (!isDict(appearanceCharacteristics)) {
         return;
       }
-      this.data.fieldValue = this.data.fieldValue.name;
+
+      if (appearanceCharacteristics.has('CA')) {
+        switch (appearanceCharacteristics.get('CA')) {
+          case '4':
+            this.data.checkBoxType = AnnotationCheckboxType.CHECK;
+            return;
+          case 'l':
+            this.data.checkBoxType = AnnotationCheckboxType.CIRCLE;
+            return;
+          case '8':
+            this.data.checkBoxType = AnnotationCheckboxType.CROSS;
+            return;
+          case 'u':
+            this.data.checkBoxType = AnnotationCheckboxType.DIAMOND;
+            return;
+          case 'n':
+            this.data.checkBoxType = AnnotationCheckboxType.SQUARE;
+            return;
+          case 'H':
+            this.data.checkBoxType = AnnotationCheckboxType.STAR;
+            return;
+        }
+      }
     }
 
     this.data.radioButton = this.hasFieldFlag(AnnotationFieldFlag.RADIO) &&
