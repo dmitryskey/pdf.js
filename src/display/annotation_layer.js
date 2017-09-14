@@ -18,7 +18,8 @@ import {
   getFilenameFromUrl, LinkTarget
 } from './dom_utils';
 import {
-  AnnotationBorderStyleType, AnnotationType, stringToPDFString, Util, warn
+  AnnotationBorderStyleType, AnnotationCheckboxType, AnnotationType,
+  stringToPDFString, Util, warn
 } from '../shared/util';
 
 /**
@@ -601,7 +602,7 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
    * @returns {HTMLSectionElement}
    */
   render() {
-    this.container.className = 'buttonWidgetAnnotation checkBox';
+    this.container.className = 'buttonWidgetAnnotation checkBox ';
 
     let element = document.createElement('input');
     element.name = encodeURIComponent(this.data.fieldName);
@@ -611,10 +612,38 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
       element.setAttribute('checked', true);
     }
 
-    this.container.style.fontSize = this.container.style.height;
-
     this.container.appendChild(element);
-    this.container.appendChild(document.createElement('span'));
+
+    let span = document.createElement('span');
+
+    span.style.fontSize = this.container.style.height;
+    span.style.color = this.data.fontColor;
+
+    switch (this.data.checkBoxType) {
+      case AnnotationCheckboxType.CHECK:
+        this.container.className += 'check';
+        break;
+      case AnnotationCheckboxType.CIRCLE:
+        this.container.className += 'circle';
+        span.style.fontSize = (parseFloat(span.style.fontSize) * 1.5) + 'px';
+        break;
+      case AnnotationCheckboxType.CROSS:
+        this.container.className += 'cross';
+        break;
+      case AnnotationCheckboxType.DIAMOND:
+        this.container.className += 'diamond';
+        span.style.fontSize = (parseFloat(span.style.fontSize) * 1.5) + 'px';
+        break;
+      case AnnotationCheckboxType.SQUARE:
+        this.container.className += 'square';
+        span.style.fontSize = (parseFloat(span.style.fontSize) * 1.5) + 'px';
+        break;
+      case AnnotationCheckboxType.STAR:
+        this.container.className += 'star';
+        break;
+    }
+
+    this.container.appendChild(span);
 
     return this.container;
   }
