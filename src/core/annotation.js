@@ -847,33 +847,9 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
       }
 
       this.data.checkBoxType = AnnotationCheckboxType.CHECK;
-
-      let appearanceCharacteristics = params.dict.get('MK');
-      if (!isDict(appearanceCharacteristics)) {
-        return;
-      }
-
-      if (appearanceCharacteristics.has('CA')) {
-        switch (appearanceCharacteristics.get('CA')) {
-          case '4':
-            this.data.checkBoxType = AnnotationCheckboxType.CHECK;
-            return;
-          case 'l':
-            this.data.checkBoxType = AnnotationCheckboxType.CIRCLE;
-            return;
-          case '8':
-            this.data.checkBoxType = AnnotationCheckboxType.CROSS;
-            return;
-          case 'u':
-            this.data.checkBoxType = AnnotationCheckboxType.DIAMOND;
-            return;
-          case 'n':
-            this.data.checkBoxType = AnnotationCheckboxType.SQUARE;
-            return;
-          case 'H':
-            this.data.checkBoxType = AnnotationCheckboxType.STAR;
-            return;
-        }
+      let controlType = this._getControlType(params.dict);
+      if (controlType) {
+        this.data.checkBoxType = controlType;
       }
     }
 
@@ -892,6 +868,12 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
         }
       }
 
+      this.data.radioButtonType = AnnotationCheckboxType.CIRCLE;
+      let controlType = this._getControlType(params.dict);
+      if (controlType) {
+        this.data.radioButtonType = controlType;
+      }
+
       // The button's value corresponds to its appearance state.
       let appearanceStates = params.dict.get('AP');
       if (!isDict(appearanceStates)) {
@@ -907,6 +889,32 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
           this.data.buttonValue = keys[i];
           break;
         }
+      }
+    }
+  }
+
+  _getControlType(dict) {
+    let appearanceCharacteristics = dict.get('MK');
+    if (!isDict(appearanceCharacteristics)) {
+      return null;
+    }
+
+    if (appearanceCharacteristics.has('CA')) {
+      switch (appearanceCharacteristics.get('CA')) {
+        case '4':
+          return AnnotationCheckboxType.CHECK;
+        case 'l':
+          return AnnotationCheckboxType.CIRCLE;
+        case '8':
+          return AnnotationCheckboxType.CROSS;
+        case 'u':
+          return AnnotationCheckboxType.DIAMOND;
+        case 'n':
+          return AnnotationCheckboxType.SQUARE;
+        case 'H':
+          return AnnotationCheckboxType.STAR;
+        default:
+          return null;
       }
     }
   }

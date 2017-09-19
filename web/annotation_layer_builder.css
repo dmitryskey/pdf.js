@@ -57,12 +57,41 @@
   width: 100%;
 }
 
-.annotationLayer .choiceWidgetAnnotation select option {
-  padding: 0;
+.annotationLayer .textWidgetAnnotation input.inset,
+.annotationLayer .textWidgetAnnotation textarea.inset,
+.annotationLayer .choiceWidgetAnnotation select.inset,
+.annotationLayer .choiceWidgetAnnotation input.inset,
+.annotationLayer .buttonWidgetAnnotation.checkBox input.inset,
+.annotationLayer .buttonWidgetAnnotation.radioButton input.inset {
+  border: 1px solid;
+  border-top-color: gray;
+  border-left-color: gray;
+  border-right-color: lightgray;
+  border-bottom-color: lightgray;
 }
 
-.annotationLayer .buttonWidgetAnnotation.radioButton input {
+.annotationLayer .textWidgetAnnotation input.beveled,
+.annotationLayer .textWidgetAnnotation textarea.beveled,
+.annotationLayer .choiceWidgetAnnotation select.beveled,
+.annotationLayer .choiceWidgetAnnotation input.beveled,
+.annotationLayer .buttonWidgetAnnotation.checkBox input.beveled,
+.annotationLayer .buttonWidgetAnnotation.radioButton input.beveled {
+  border: 1px solid;
+  border-top-color: white;
+  border-left-color: white;
+  border-right-color: gray;
+  border-bottom-color: gray;
+}
+
+.annotationLayer .buttonWidgetAnnotation.radioButton.circle input {
   border-radius: 50%;
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%);
+}
+
+.annotationLayer .choiceWidgetAnnotation select option {
+  padding: 0;
 }
 
 .annotationLayer .textWidgetAnnotation textarea {
@@ -131,9 +160,10 @@
 
 .annotationLayer .choiceWidgetAnnotation input + span::before {
   content: '\25BC';
-  right: 1px;
-  top: 15%;
-  zoom: 50%;
+  right: 0;
+  font-size: 8pt;
+  top: 60%;
+  transform: translate(0, -60%);
   position: absolute;
 }
 
@@ -170,53 +200,53 @@
   margin-top: -3px;
 }
 
-.annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before {
-  font-family: 'sans-serif';
+.annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before,
+.annotationLayer .buttonWidgetAnnotation.radioButton input:checked + span::before {
   position: absolute;
   left: 50%;
   top: 50%;
+  transform: translate(-50%, -55%);
   text-align: center;
+}
+
+.annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span::before {
   z-index: -1;
 }
 
-.annotationLayer .buttonWidgetAnnotation.checkBox.check input:checked + span::before {
+.annotationLayer .buttonWidgetAnnotation.radioButton input:checked + span::before {
+  z-index: 1;
+}
+
+.annotationLayer .buttonWidgetAnnotation.checkBox.check input:checked + span::before,
+.annotationLayer .buttonWidgetAnnotation.radioButton.check input:checked + span::before {
   content: '\2713';
   transform: translate(-50%, -50%);
 }
 
-.annotationLayer .buttonWidgetAnnotation.checkBox.circle input:checked + span::before {
+.annotationLayer .buttonWidgetAnnotation.checkBox.circle input:checked + span::before,
+.annotationLayer .buttonWidgetAnnotation.radioButton.circle input:checked + span::before {    
   content: '\25CF';
-  transform: translate(-50%, -55%);
 }
 
-.annotationLayer .buttonWidgetAnnotation.checkBox.cross input:checked + span::before {
+.annotationLayer .buttonWidgetAnnotation.checkBox.cross input:checked + span::before,
+.annotationLayer .buttonWidgetAnnotation.radioButton.cross input:checked + span::before {
   content: '\2715';
   transform: translate(-50%, -50%);
 }
 
-.annotationLayer .buttonWidgetAnnotation.checkBox.diamond input:checked + span::before {
+.annotationLayer .buttonWidgetAnnotation.checkBox.diamond input:checked + span::before,
+.annotationLayer .buttonWidgetAnnotation.radioButton.diamond input:checked + span::before {
   content: '\25C6';
-  transform: translate(-50%, -55%);
 }
 
-.annotationLayer .buttonWidgetAnnotation.checkBox.square input:checked + span::before {
+.annotationLayer .buttonWidgetAnnotation.checkBox.square input:checked + span::before,
+.annotationLayer .buttonWidgetAnnotation.radioButton.square input:checked + span::before {
   content: '\25A0';
-  transform: translate(-50%, -55%);
 }
 
-.annotationLayer .buttonWidgetAnnotation.checkBox.star input:checked + span::before {
+.annotationLayer .buttonWidgetAnnotation.checkBox.star input:checked + span::before,
+.annotationLayer .buttonWidgetAnnotation.radioButton.star input:checked + span::before {
   content: '\2605';
-  transform: translate(-50%, -55%);
-}
-
-.annotationLayer .buttonWidgetAnnotation.radioButton input:checked + span::before {
-  font-family: 'sans-serif';
-  content: '\2022';
-  position: absolute;
-  left: 50%;
-  transform: translate(-50%, 0);
-  bottom: 0;
-  z-index: -1;
 }
 
 .annotationLayer .popupWrapper {
