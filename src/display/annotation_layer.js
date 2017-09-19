@@ -93,6 +93,9 @@ class AnnotationElementFactory {
       case AnnotationType.STRIKEOUT:
         return new StrikeOutAnnotationElement(parameters);
 
+      case AnnotationType.STAMP:
+        return new StampAnnotationElement(parameters);
+
       case AnnotationType.FILEATTACHMENT:
         return new FileAttachmentAnnotationElement(parameters);
 
@@ -169,6 +172,10 @@ class AnnotationElement {
 
       switch (data.borderStyle.style) {
         case AnnotationBorderStyleType.SOLID:
+        case AnnotationBorderStyleType.INSET:
+        case AnnotationBorderStyleType.BEVELED:
+          // border styles 'inset' and 'beveled' are applied
+          // to the underlying control
           container.style.borderStyle = 'solid';
           break;
 
@@ -176,13 +183,6 @@ class AnnotationElement {
           container.style.borderStyle = 'dashed';
           break;
 
-        case AnnotationBorderStyleType.BEVELED:
-          warn('Unimplemented border style: beveled');
-          break;
-
-        case AnnotationBorderStyleType.INSET:
-          warn('Unimplemented border style: inset');
-          break;
         case AnnotationBorderStyleType.UNDERLINE:
           container.style.borderBottomStyle = 'solid';
           break;
@@ -396,8 +396,9 @@ class WidgetAnnotationElement extends AnnotationElement {
    * @memberof WidgetAnnotationElement
    */
   _setBackgroundColor(
-        element, color, layerClassName, containerClassName) {
-    if (color && layerClassName && containerClassName) {
+        element, color, layerClassName, containerClassName, opacity) {
+    if (color && color.length >= 3 &&
+        layerClassName && containerClassName) {
       let bgColor = Util.makeCssRgb(
         color[0] | 0,
         color[1] | 0,
@@ -406,8 +407,9 @@ class WidgetAnnotationElement extends AnnotationElement {
       let cssClass = document.createElement('style');
       cssClass.innerHTML =
         '.' + layerClassName + ' .' + containerClassName +
-        ' [name="' + encodeURIComponent(element.name) +
-        '"]:focus {background-color:' + bgColor + ';}';
+        ' [annotation-name="' + element.getAttribute('annotation-name') +
+        '"] {background-color:' + bgColor + ';' +
+        (opacity ? 'opacity:' + opacity + ';' : '') + '}';
 
       document.body.appendChild(cssClass);
     }
@@ -442,6 +444,33 @@ class WidgetAnnotationElement extends AnnotationElement {
     }
 
     return null;
+  }
+
+  /**
+   * Get style of the checkbox or radiobutton.
+   *
+   * @private
+   * @param {Object} type
+   * @memberof WidgetAnnotationElement
+   * @returns {String}
+   */
+  _getCheckBoxStyle(type) {
+    switch (type) {
+      case AnnotationCheckboxType.CHECK:
+        return 'check';
+      case AnnotationCheckboxType.CIRCLE:
+        return 'circle';
+      case AnnotationCheckboxType.CROSS:
+        return 'cross';
+      case AnnotationCheckboxType.DIAMOND:
+        return 'diamond';
+      case AnnotationCheckboxType.SQUARE:
+        return 'square';
+      case AnnotationCheckboxType.STAR:
+        return 'star';
+      default:
+        return '';
+    }
   }
 }
 
@@ -478,12 +507,21 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
         element.setAttribute('value', this.data.fieldValue);
       }
 
-      element.name = encodeURIComponent(this.data.fieldName);
+      element.setAttribute('annotation-name',
+        encodeURIComponent(this.data.fieldName));
 
       element.disabled = this.data.readOnly;
 
       if (this.data.maxLen !== null) {
         element.maxLength = this.data.maxLen;
+      }
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+        element.className = 'inset';
+      }
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+        element.className = 'beveled';
       }
 
       if (this.data.comb) {
@@ -605,43 +643,45 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
     this.container.className = 'buttonWidgetAnnotation checkBox ';
 
     let element = document.createElement('input');
-    element.name = encodeURIComponent(this.data.fieldName);
+    element.setAttribute('annotation-name',
+      encodeURIComponent(this.data.fieldName));
     element.disabled = this.data.readOnly;
     element.type = 'checkbox';
     if (this.data.fieldValue && this.data.fieldValue !== 'Off') {
       element.setAttribute('checked', true);
     }
 
+    if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+      element.className = 'inset';
+    }
+
+    if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+      element.className = 'beveled';
+    }
+
     this.container.appendChild(element);
 
     let span = document.createElement('span');
 
-    span.style.fontSize = this.container.style.height;
-    span.style.color = this.data.fontColor;
+    var fontSizeFactor =
+        this.data.checkBoxType === AnnotationCheckboxType.CIRCLE ||
+        this.data.checkBoxType === AnnotationCheckboxType.DIAMOND ||
+        this.data.checkBoxType === AnnotationCheckboxType.SQUARE ?
+        1.5 : 1.0;
 
-    switch (this.data.checkBoxType) {
-      case AnnotationCheckboxType.CHECK:
-        this.container.className += 'check';
-        break;
-      case AnnotationCheckboxType.CIRCLE:
-        this.container.className += 'circle';
-        span.style.fontSize = (parseFloat(span.style.fontSize) * 1.5) + 'px';
-        break;
-      case AnnotationCheckboxType.CROSS:
-        this.container.className += 'cross';
-        break;
-      case AnnotationCheckboxType.DIAMOND:
-        this.container.className += 'diamond';
-        span.style.fontSize = (parseFloat(span.style.fontSize) * 1.5) + 'px';
-        break;
-      case AnnotationCheckboxType.SQUARE:
-        this.container.className += 'square';
-        span.style.fontSize = (parseFloat(span.style.fontSize) * 1.5) + 'px';
-        break;
-      case AnnotationCheckboxType.STAR:
-        this.container.className += 'star';
-        break;
-    }
+    span.style.fontSize = (parseFloat(this.container.style.height) *
+      fontSizeFactor) + 'px';
+
+    span.style.color = this.data.fontColor;
+    this.container.className +=
+      this._getCheckBoxStyle(this.data.checkBoxType);
+
+    this._setBackgroundColor(
+      element,
+      this.data.backgroundColor,
+      this.layer.className,
+      this.container.className.replace(/ /g, '.'),
+      0.5);
 
     this.container.appendChild(span);
 
@@ -663,24 +703,56 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
    * @returns {HTMLSectionElement}
    */
   render() {
-    this.container.className = 'buttonWidgetAnnotation radioButton';
+    this.container.className = 'buttonWidgetAnnotation radioButton ';
 
     let element = document.createElement('input');
     element.name = encodeURIComponent(this.data.fieldName);
+    element.setAttribute('annotation-name',
+      encodeURIComponent(this.data.fieldName + '_' +
+      (this.data.buttonValue || '')));
     element.disabled = this.data.readOnly;
     element.type = 'radio';
     if (this.data.fieldValue === this.data.buttonValue) {
       element.setAttribute('checked', true);
     }
 
-    if (this.data.fieldValue) {
-      element.value = this.data.fieldValue;
+    if (this.data.radioButtonType === AnnotationCheckboxType.CIRCLE) {
+      element.style.width = this.container.style.width =
+        this.container.style.height;
+      CustomStyle.setProp('borderRadius', this.container, '50%');
     }
 
-    this.container.style.fontSize = this.container.style.height;
+    if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+      element.className = 'inset';
+    }
+
+    if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+      element.className = 'beveled';
+    }
 
     this.container.appendChild(element);
-    this.container.appendChild(document.createElement('span'));
+
+    let span = document.createElement('span');
+
+    var fontSizeFactor =
+    this.data.checkBoxType === AnnotationCheckboxType.DIAMOND ||
+    this.data.checkBoxType === AnnotationCheckboxType.SQUARE ?
+    1.5 : 1.0;
+
+    span.style.fontSize = (parseFloat(this.container.style.height) *
+      fontSizeFactor) + 'px';
+
+    span.style.color = this.data.fontColor;
+    this.container.className +=
+      this._getCheckBoxStyle(this.data.radioButtonType);
+
+    this._setBackgroundColor(
+      element,
+      this.data.backgroundColor,
+      this.layer.className,
+      this.container.className.replace(/ /g, '.'));
+
+    this.container.appendChild(span);
 
     return this.container;
   }
@@ -707,7 +779,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
     if (!this.data.combo) {
       let selectElement = document.createElement('select');
-      selectElement.name = encodeURIComponent(this.data.fieldName);
+      selectElement.setAttribute('annotation-name',
+        encodeURIComponent(this.data.fieldName));
       selectElement.disabled = this.data.readOnly;
 
       style = selectElement.style;
@@ -752,7 +825,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let comboElement = document.createElement('input');
       comboElement.type = 'text';
       comboElement.readOnly = true;
-      comboElement.name = encodeURIComponent(this.data.fieldName);
+      comboElement.setAttribute('annotation-name',
+        encodeURIComponent(this.data.fieldName));
       comboElement.style.height = this.container.style.height;
       comboElement.style.width = this.container.style.width;
 
@@ -1377,6 +1451,30 @@ class StrikeOutAnnotationElement extends AnnotationElement {
    */
   render() {
     this.container.className = 'strikeoutAnnotation';
+
+    if (!this.data.hasPopup) {
+      this._createPopup(this.container, null, this.data);
+    }
+    return this.container;
+  }
+}
+
+class StampAnnotationElement extends AnnotationElement {
+  constructor(parameters) {
+    let isRenderable = !!(parameters.data.hasPopup ||
+                          parameters.data.title || parameters.data.contents);
+    super(parameters, isRenderable, /* ignoreBorder = */ true);
+  }
+
+  /**
+   * Render the stamp annotation's HTML element in the empty container.
+   *
+   * @public
+   * @memberof StampAnnotationElement
+   * @returns {HTMLSectionElement}
+   */
+  render() {
+    this.container.className = 'stampAnnotation';
 
     if (!this.data.hasPopup) {
       this._createPopup(this.container, null, this.data);
