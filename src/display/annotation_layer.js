@@ -391,27 +391,16 @@ class WidgetAnnotationElement extends AnnotationElement {
    * @protected
    * @param {HTMLElement} element
    * @param {Object} color
-   * @param {String} annotation layer class name
-   * @param {String} container class name
    * @memberof WidgetAnnotationElement
    */
-  _setBackgroundColor(
-        element, color, layerClassName, containerClassName, opacity) {
-    if (color && color.length >= 3 &&
-        layerClassName && containerClassName) {
+  _setBackgroundColor(element, color) {
+    if (color && color.length >= 3) {
       let bgColor = Util.makeCssRgb(
         color[0] | 0,
         color[1] | 0,
         color[2] | 0);
 
-      let cssClass = document.createElement('style');
-      cssClass.innerHTML =
-        '.' + layerClassName + ' .' + containerClassName +
-        ' [annotation-name="' + element.getAttribute('annotation-name') +
-        '"] {background-color:' + bgColor + ';' +
-        (opacity ? 'opacity:' + opacity + ';' : '') + '}';
-
-      document.body.appendChild(cssClass);
+      element.style.backgroundColor = bgColor;
     }
   }
 
@@ -444,6 +433,37 @@ class WidgetAnnotationElement extends AnnotationElement {
     }
 
     return null;
+  }
+
+  /**
+   * Calculate font auto size.
+   *
+   * @private
+   * @param {HTMLDivElement} element
+   * @param {String} text
+   * @memberof WidgetAnnotationElement
+   * @returns {String}
+   */
+  _calculateFontAutoSize(element, text, offset) {
+    let style = element.style;
+    let maxHeight = parseInt(element.offsetHeight);
+    offset = offset || 0;
+
+    let fSize = 2;
+    let sizeStep = 0.1;
+    for (fSize = 2; fSize < maxHeight - 2; fSize += sizeStep) {
+      let m = this._measureText(text,
+        (style.fontStyle ? style.fontStyle + ' ' : '') +
+        (style.fontWeight ? style.fontWeight + ' ' : '') +
+        fSize + 'px ' +
+        (this.fontFamily || this._getDefaultFontName()));
+
+      if (m.width + offset > parseInt(element.offsetWidth)) {
+        break;
+      }
+    }
+
+    return (fSize - sizeStep) + 'px';
   }
 
   /**
@@ -559,11 +579,7 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
       element.style.textAlign = TEXT_ALIGNMENT[this.data.textAlignment];
     }
 
-    this._setBackgroundColor(
-      element,
-      this.data.backgroundColor,
-      this.layer.className,
-      this.container.className);
+    this._setBackgroundColor(element, this.data.backgroundColor);
 
     this.container.appendChild(element);
     return this.container;
@@ -585,6 +601,10 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
       style.color = this.data.fontColor;
     }
 
+    if (this.data.fontSize) {
+      style.fontSize = this.data.fontSize + 'px';
+    }
+
     if (this.data.fontDirection) {
       style.direction = (this.data.fontDirection < 0 ? 'rtl' : 'ltr');
     }
@@ -603,25 +623,15 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
 
     // Auto size
     if (!style.fontSize && !this.data.multiLine) {
-      style.fontSize = '9px';
-      let self = this;
-      element.onblur = () => {
-        let maxHeight = parseInt(self.container.style.height);
+      var self = this;
 
-        let fSize = 2;
-        for (fSize = 2; fSize < maxHeight - 2; fSize += 0.1) {
-          let m = self._measureText(element.value,
-            (style.fontStyle ? style.fontStyle + ' ' : '') +
-            (style.fontWeight ? style.fontWeight + ' ' : '') +
-            fSize + 'px ' +
-            (style.fontFamily || self._getDefaultFontName()));
+      window.setTimeout(function(element, self) {
+        element.style.fontSize =
+          self._calculateFontAutoSize(element, element.value);
+      }, 100, element, this);
 
-          if (m.width > parseInt(self.container.style.width)) {
-            break;
-          }
-        }
-
-        style.fontSize = --fSize + 'px';
+      element.onkeypress = element.onblur = function() {
+        style.fontSize = self._calculateFontAutoSize(this, this.value);
       };
     }
   }
@@ -663,7 +673,29 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
 
     let span = document.createElement('span');
 
-    var fontSizeFactor =
+    let checkMarkSymbols = {};
+    checkMarkSymbols[AnnotationCheckboxType.CHECK] = '✓';
+    checkMarkSymbols[AnnotationCheckboxType.CIRCLE] = '●';
+    checkMarkSymbols[AnnotationCheckboxType.CROSS] = '✕';
+    checkMarkSymbols[AnnotationCheckboxType.DIAMOND] = '◆';
+    checkMarkSymbols[AnnotationCheckboxType.SQUARE] = '■';
+    checkMarkSymbols[AnnotationCheckboxType.STAR] = '★';
+
+    span.innerHTML = element.getAttribute('checked') ?
+      checkMarkSymbols[this.data.checkBoxType] : '';
+
+    let self = this;
+    element.onchange = () => {
+      span.innerHTML = element.checked ?
+        checkMarkSymbols[self.data.checkBoxType] : '';
+    };
+
+    span.onclick = () => {
+      element.checked = false;
+      span.innerHTML = '';
+    };
+
+    let fontSizeFactor =
         this.data.checkBoxType === AnnotationCheckboxType.CIRCLE ||
         this.data.checkBoxType === AnnotationCheckboxType.DIAMOND ||
         this.data.checkBoxType === AnnotationCheckboxType.SQUARE ?
@@ -676,12 +708,7 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
     this.container.className +=
       this._getCheckBoxStyle(this.data.checkBoxType);
 
-    this._setBackgroundColor(
-      element,
-      this.data.backgroundColor,
-      this.layer.className,
-      this.container.className.replace(/ /g, '.'),
-      0.5);
+    this._setBackgroundColor(element, this.data.backgroundColor);
 
     this.container.appendChild(span);
 
@@ -746,11 +773,7 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
     this.container.className +=
       this._getCheckBoxStyle(this.data.radioButtonType);
 
-    this._setBackgroundColor(
-      element,
-      this.data.backgroundColor,
-      this.layer.className,
-      this.container.className.replace(/ /g, '.'));
+    this._setBackgroundColor(element, this.data.backgroundColor);
 
     this.container.appendChild(span);
 
@@ -787,11 +810,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       this._setElementFont(selectElement);
 
-      this._setBackgroundColor(
-        selectElement,
-        this.data.backgroundColor,
-        this.layer.className,
-        this.container.className);
+      this._setBackgroundColor(selectElement, this.data.backgroundColor);
 
       // List boxes have a size and (optionally) multiple selection.
       selectElement.size = this.data.options.length;
@@ -836,11 +855,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       this._setElementFont(comboElement);
 
-      this._setBackgroundColor(
-        comboElement,
-        this.data.backgroundColor,
-        this.layer.className,
-        this.container.className);
+      this._setBackgroundColor(comboElement, this.data.backgroundColor);
 
       let comboContent = document.createElement('div');
       comboContent.className = 'combo-content';
@@ -868,29 +883,9 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let comboWidth = parseFloat(self.container.style.width);
       let increaseComboWidth = false;
 
-      let outer = document.createElement('div');
-      outer.style.visibility = 'hidden';
-      outer.style.width = '100px';
-      outer.style.msOverflowStyle = 'scrollbar'; // needed for WinJS apps
-
-      document.body.appendChild(outer);
-
-      let widthNoScroll = outer.offsetWidth;
-      // force scrollbars
-      outer.style.overflow = 'scroll';
-
-      // add innerdiv
-      let inner = document.createElement('div');
-      inner.style.width = '100%';
-      outer.appendChild(inner);
-
-      let widthWithScroll = inner.offsetWidth;
-
-      // remove divs
-      outer.parentNode.removeChild(outer);
-      let scrollbarWidth = widthNoScroll - widthWithScroll;
-
       let aElementPadding = 2;
+      let downArrowWidth = self._measureText('▼',
+      ('8pt ' + self._getDefaultFontName())).width;
 
       for (i = 0, ii = this.data.options.length; i < ii; i++) {
         let optionItem = this.data.options[i];
@@ -900,6 +895,15 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         aElement.text = optionItem.displayValue;
         aElement.name = itemName;
         aElement.style.padding = aElementPadding + 'px';
+        if (!style.fontSize) {
+          aElement.style.fontSize = '9px';
+        } else {
+          aElement.style.fontSize = style.fontSize;
+        }
+
+        if (this.data.fieldValue.indexOf(optionItem.exportValue) >= 0) {
+          comboElement.value = optionItem.displayValue;
+        }
 
         let aElementWidth = self._measureText(aElement.text,
             (style.fontStyle ? style.fontStyle + ' ' : '') +
@@ -907,7 +911,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
             (style.fontSize ? style.fontSize : '9') + 'px ' +
             (style.fontFamily || self._getDefaultFontName()));
 
-        if (aElementWidth.width + scrollbarWidth +
+        if (aElementWidth.width + downArrowWidth +
             aElementPadding * 2 > comboWidth) {
           comboWidth = aElementWidth.width;
           increaseComboWidth = true;
@@ -924,22 +928,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
           // Auto size
           if (comboElement.autoSize) {
-            let maxHeight = parseInt(self.container.style.height);
-
-            let fSize = 2;
-            for (fSize = 2; fSize < maxHeight - 2; fSize += 0.1) {
-              let m = self._measureText(this.text,
-                (style.fontStyle ? style.fontStyle + ' ' : '') +
-                (style.fontWeight ? style.fontWeight + ' ' : '') +
-                fSize + 'px ' +
-                (style.fontFamily || self._getDefaultFontName()));
-
-              if (m.width > parseInt(self.container.style.width)) {
-                break;
-              }
-            }
-
-            style.fontSize = --fSize + 'px';
+            style.fontSize = self._calculateFontAutoSize(
+              comboElement, this.text, downArrowWidth);
           }
         };
 
@@ -955,13 +945,18 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       }
 
       if (increaseComboWidth) {
-        comboContent.style.width = (comboWidth + scrollbarWidth +
+        comboContent.style.width = (comboWidth + downArrowWidth +
             aElementPadding * 2) + 'px';
       }
 
       if (!style.fontSize) {
         comboElement.autoSize = true;
-        style.fontSize = '9px';
+
+        window.setTimeout(function(element, self, downArrowWidth) {
+          element.style.fontSize =
+            self._calculateFontAutoSize(element, element.value,
+              downArrowWidth);
+        }, 100, comboElement, this, downArrowWidth);
       }
 
       comboElementDiv.appendChild(comboElement);
