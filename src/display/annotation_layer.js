@@ -492,6 +492,46 @@ class WidgetAnnotationElement extends AnnotationElement {
         return '';
     }
   }
+
+  /**
+   * Get all annotations with the same name.
+   *
+   * @private
+   * @param {Object} element
+   * @memberof WidgetAnnotationElement
+   * @returns {Array}
+   */
+  _getAnnotationsByName(element) {
+    let annotations = [];
+    let ctrls = document.getElementsByTagName(element.tagName);
+    for (let index in ctrls) {
+      if (ctrls[index].type === element.type &&
+          ctrls[index].getAttribute('annotation-name') ===
+          element.getAttribute('annotation-name')) {
+        annotations.push(ctrls[index]);
+      }
+    }
+
+    return annotations;
+  }
+
+   /**
+   * Get checkmark/radio button symbols.
+   *
+   * @private
+   * @memberof WidgetAnnotationElement
+   * @returns {Array}
+   */
+  _getCheckmarkSymbols() {
+    let checkMarkSymbols = [];
+    checkMarkSymbols[AnnotationCheckboxType.CHECK] = '✓';
+    checkMarkSymbols[AnnotationCheckboxType.CIRCLE] = '●';
+    checkMarkSymbols[AnnotationCheckboxType.CROSS] = '✕';
+    checkMarkSymbols[AnnotationCheckboxType.DIAMOND] = '◆';
+    checkMarkSymbols[AnnotationCheckboxType.SQUARE] = '■';
+    checkMarkSymbols[AnnotationCheckboxType.STAR] = '★';
+    return checkMarkSymbols;
+  }
 }
 
 class TextWidgetAnnotationElement extends WidgetAnnotationElement {
@@ -511,6 +551,10 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     const TEXT_ALIGNMENT = ['left', 'center', 'right'];
     this.container.className = 'textWidgetAnnotation';
+
+    if (!this.data.readOnly) {
+      this.container.title = this.data.alternativeText;
+    }
 
     let element = null;
     let font = null;
@@ -652,14 +696,17 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     this.container.className = 'buttonWidgetAnnotation checkBox ';
 
+    if (!this.data.readOnly) {
+      this.container.title = this.data.alternativeText;
+    }
+
     let element = document.createElement('input');
     element.setAttribute('annotation-name',
       encodeURIComponent(this.data.fieldName));
     element.disabled = this.data.readOnly;
     element.type = 'checkbox';
-    if (this.data.fieldValue && this.data.fieldValue !== 'Off') {
-      element.setAttribute('checked', true);
-    }
+    element.checked = this.data.fieldValue && this.data.fieldValue !== 'Off';
+    element.checkBoxType = this.data.checkBoxType;
 
     if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
       element.className = 'inset';
@@ -671,38 +718,58 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
 
     this.container.appendChild(element);
 
+    // We have to create a div with checkbox symbol
+    // in order to deal with background color, when
+    // div with text handles onclick event.
     let span = document.createElement('span');
 
-    let checkMarkSymbols = {};
-    checkMarkSymbols[AnnotationCheckboxType.CHECK] = '✓';
-    checkMarkSymbols[AnnotationCheckboxType.CIRCLE] = '●';
-    checkMarkSymbols[AnnotationCheckboxType.CROSS] = '✕';
-    checkMarkSymbols[AnnotationCheckboxType.DIAMOND] = '◆';
-    checkMarkSymbols[AnnotationCheckboxType.SQUARE] = '■';
-    checkMarkSymbols[AnnotationCheckboxType.STAR] = '★';
+    let checkMarkSymbols = this._getCheckmarkSymbols();
 
-    span.innerHTML = element.getAttribute('checked') ?
-      checkMarkSymbols[this.data.checkBoxType] : '';
+    span.innerHTML = element.checked ?
+      checkMarkSymbols[element.checkBoxType] : '';
 
-    let self = this;
     element.onchange = () => {
       span.innerHTML = element.checked ?
-        checkMarkSymbols[self.data.checkBoxType] : '';
+        checkMarkSymbols[element.checkBoxType] : '';
+
+      let annotations = this._getAnnotationsByName(element);
+      for (let index in annotations) {
+        if (annotations[index] !== element &&
+            annotations[index].parentElement) {
+          annotations[index].checked = element.checked;
+          var annotationSpans =
+            annotations[index].parentElement.getElementsByTagName('span');
+          if (annotationSpans.length > 0) {
+            annotationSpans[0].innerHTML = element.checked ?
+              checkMarkSymbols[annotations[index].checkBoxType] : '';
+          }
+        }
+      }
     };
 
     span.onclick = () => {
-      element.checked = false;
-      span.innerHTML = '';
+      if (!element.disabled) {
+        element.checked = false;
+        element.onchange();
+      }
     };
 
     let fontSizeFactor =
         this.data.checkBoxType === AnnotationCheckboxType.CIRCLE ||
         this.data.checkBoxType === AnnotationCheckboxType.DIAMOND ||
-        this.data.checkBoxType === AnnotationCheckboxType.SQUARE ?
-        1.5 : 1.0;
+        this.data.checkBoxType === AnnotationCheckboxType.SQUARE ? 1.5 :
+        this.data.checkBoxType === AnnotationCheckboxType.STAR ? 0.5 : 1.0;
+
+    let fontSizePadding =
+        this.data.checkBoxType !== AnnotationCheckboxType.STAR &&
+        (this.data.borderStyle.style === AnnotationBorderStyleType.INSET ||
+        this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) ?
+        4 : 0;
+
+    span.style.lineHeight = this.container.style.height;
 
     span.style.fontSize = (parseFloat(this.container.style.height) *
-      fontSizeFactor) + 'px';
+      fontSizeFactor - fontSizePadding) + 'px';
 
     span.style.color = this.data.fontColor;
     this.container.className +=
@@ -732,6 +799,10 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     this.container.className = 'buttonWidgetAnnotation radioButton ';
 
+    if (!this.data.readOnly) {
+      this.container.title = this.data.alternativeText;
+    }
+
     let element = document.createElement('input');
     element.name = encodeURIComponent(this.data.fieldName);
     element.setAttribute('annotation-name',
@@ -740,8 +811,10 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
     element.disabled = this.data.readOnly;
     element.type = 'radio';
     if (this.data.fieldValue === this.data.buttonValue) {
-      element.setAttribute('checked', true);
+      element.checked = true;
     }
+
+    element.radioButtonType = this.data.radioButtonType;
 
     if (this.data.radioButtonType === AnnotationCheckboxType.CIRCLE) {
       element.style.width = this.container.style.width =
@@ -761,13 +834,43 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
 
     let span = document.createElement('span');
 
-    var fontSizeFactor =
-    this.data.checkBoxType === AnnotationCheckboxType.DIAMOND ||
-    this.data.checkBoxType === AnnotationCheckboxType.SQUARE ?
-    1.5 : 1.0;
+    let checkMarkSymbols = this._getCheckmarkSymbols();
+
+    span.innerHTML = element.checked ?
+      checkMarkSymbols[element.radioButtonType] : '';
+
+    element.onchange = () => {
+      span.innerHTML = checkMarkSymbols[element.radioButtonType];
+
+      let annotations = document.getElementsByName(element.name);
+      for (let index in annotations) {
+        if (annotations[index] !== element &&
+            annotations[index].parentElement) {
+          var annotationSpans =
+            annotations[index].parentElement.getElementsByTagName('span');
+          if (annotationSpans.length > 0) {
+            annotationSpans[0].innerHTML = '';
+          }
+        }
+      }
+    };
+
+    let fontSizeFactor =
+    this.data.radioButtonType === AnnotationCheckboxType.CIRCLE ||
+    this.data.radioButtonType === AnnotationCheckboxType.DIAMOND ||
+    this.data.radioButtonType === AnnotationCheckboxType.SQUARE ? 1.5 :
+    this.data.radioButtonType === AnnotationCheckboxType.STAR ? 0.5 : 1.0;
+
+    let fontSizePadding =
+      this.data.radioButtonType !== AnnotationCheckboxType.STAR &&
+      (this.data.borderStyle.style === AnnotationBorderStyleType.INSET ||
+      this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) ?
+      4 : 0;
+
+    span.style.lineHeight = this.container.style.height;
 
     span.style.fontSize = (parseFloat(this.container.style.height) *
-      fontSizeFactor) + 'px';
+      fontSizeFactor - fontSizePadding) + 'px';
 
     span.style.color = this.data.fontColor;
     this.container.className +=

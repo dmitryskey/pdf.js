@@ -637,7 +637,8 @@ class WidgetAnnotation extends Annotation {
     data.fieldName = this._constructFieldName(dict);
     data.fieldValue = Util.getInheritableProperty(dict, 'V',
                                                   /* getArray = */ true);
-    data.alternativeText = stringToPDFString(dict.get('TU') || '');
+    data.alternativeText = stringToPDFString(Util.getInheritableProperty(
+      dict, 'TU') || '');
     data.defaultAppearance = Util.getInheritableProperty(dict, 'DA') || '';
     let fieldType = Util.getInheritableProperty(dict, 'FT');
     data.fieldType = isName(fieldType) ? fieldType.name : null;
