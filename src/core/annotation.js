@@ -306,6 +306,8 @@ class Annotation {
    * @param {Dict} dict - An appearance characteristics dictionary
    */
   setBackgroundColor(dict) {
+    this.backgroundColor = null;
+
     if (!isDict(dict)) {
       return;
     }
@@ -323,6 +325,8 @@ class Annotation {
    * @param {Dict} dict - An appearance characteristic dictionary
    */
   setBorderColor(dict) {
+    this.borderColor = null;
+
     if (!isDict(dict)) {
       return;
     }
