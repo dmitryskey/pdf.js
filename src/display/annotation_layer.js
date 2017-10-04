@@ -915,6 +915,14 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         encodeURIComponent(this.data.fieldName));
       selectElement.disabled = this.data.readOnly;
 
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+        selectElement.className = 'inset';
+      }
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+        selectElement.className = 'beveled';
+      }
+
       style = selectElement.style;
 
       this._setElementFont(selectElement);
@@ -937,7 +945,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         optionElement.value = option.exportValue;
         optionElement.setAttribute('name', itemName);
 
-        if (this.data.fieldValue.indexOf(option.displayValue) >= 0) {
+        if (this.data.fieldValue.indexOf(option.exportValue) >= 0) {
           optionElement.setAttribute('selected', true);
         }
 
@@ -952,11 +960,19 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       let comboElement = document.createElement('input');
       comboElement.type = 'text';
-      comboElement.readOnly = true;
+      comboElement.readOnly = !this.data.customText;
       comboElement.setAttribute('annotation-name',
         encodeURIComponent(this.data.fieldName));
       comboElement.style.height = this.container.style.height;
       comboElement.style.width = this.container.style.width;
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+        comboElement.className = 'inset';
+      }
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+        comboElement.className = 'beveled';
+      }
 
       style = comboElement.style;
 
@@ -1069,8 +1085,11 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       }
 
       comboElementDiv.appendChild(comboElement);
-      comboElementDiv.appendChild(spanElement);
-      comboElementDiv.appendChild(comboContent);
+
+      if (!this.data.readOnly) {
+        comboElementDiv.appendChild(spanElement);
+        comboElementDiv.appendChild(comboContent);
+      }
 
       this.container.appendChild(comboElementDiv);
     }
