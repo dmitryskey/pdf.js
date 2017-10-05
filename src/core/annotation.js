@@ -104,6 +104,12 @@ class AnnotationFactory {
       case 'Circle':
         return new CircleAnnotation(parameters);
 
+      case 'PolyLine':
+        return new PolylineAnnotation(parameters);
+
+      case 'Polygon':
+        return new PolygonAnnotation(parameters);
+
       case 'Highlight':
         return Promise.resolve(new HighlightAnnotation(parameters));
 
@@ -300,6 +306,8 @@ class Annotation {
    * @param {Dict} dict - An appearance characteristics dictionary
    */
   setBackgroundColor(dict) {
+    this.backgroundColor = null;
+
     if (!isDict(dict)) {
       return;
     }
@@ -317,6 +325,8 @@ class Annotation {
    * @param {Dict} dict - An appearance characteristic dictionary
    */
   setBorderColor(dict) {
+    this.borderColor = null;
+
     if (!isDict(dict)) {
       return;
     }
@@ -637,7 +647,8 @@ class WidgetAnnotation extends Annotation {
     data.fieldName = this._constructFieldName(dict);
     data.fieldValue = Util.getInheritableProperty(dict, 'V',
                                                   /* getArray = */ true);
-    data.alternativeText = stringToPDFString(dict.get('TU') || '');
+    data.alternativeText = stringToPDFString(Util.getInheritableProperty(
+      dict, 'TU') || '');
     data.defaultAppearance = Util.getInheritableProperty(dict, 'DA') || '';
     let fieldType = Util.getInheritableProperty(dict, 'FT');
     data.fieldType = isName(fieldType) ? fieldType.name : null;
@@ -962,6 +973,7 @@ class ChoiceWidgetAnnotation extends WidgetAnnotation {
     // Process field flags for the display layer.
     this.data.combo = this.hasFieldFlag(AnnotationFieldFlag.COMBO);
     this.data.multiSelect = this.hasFieldFlag(AnnotationFieldFlag.MULTISELECT);
+    this.data.customText = this.hasFieldFlag(AnnotationFieldFlag.EDIT);
   }
 }
 
@@ -1065,6 +1077,39 @@ class CircleAnnotation extends Annotation {
 
     this.data.annotationType = AnnotationType.CIRCLE;
     this._preparePopup(parameters.dict);
+  }
+}
+
+class PolylineAnnotation extends Annotation {
+  constructor(parameters) {
+    super(parameters);
+
+    this.data.annotationType = AnnotationType.POLYLINE;
+
+    // The vertices array is an array of numbers representing the alternating
+    // horizontal and vertical coordinates, respectively, of each vertex.
+    // Convert this to an array of objects with x and y coordinates.
+    let dict = parameters.dict;
+    let rawVertices = dict.getArray('Vertices');
+
+    this.data.vertices = [];
+    for (let i = 0, ii = rawVertices.length; i < ii; i += 2) {
+      this.data.vertices.push({
+        x: rawVertices[i],
+        y: rawVertices[i + 1],
+      });
+    }
+
+    this._preparePopup(dict);
+  }
+}
+
+class PolygonAnnotation extends PolylineAnnotation {
+  constructor(parameters) {
+    // Polygons are specific forms of polylines, so reuse their logic.
+    super(parameters);
+
+    this.data.annotationType = AnnotationType.POLYGON;
   }
 }
 

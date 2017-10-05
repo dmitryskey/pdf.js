@@ -81,6 +81,12 @@ class AnnotationElementFactory {
       case AnnotationType.CIRCLE:
         return new CircleAnnotationElement(parameters);
 
+      case AnnotationType.POLYLINE:
+        return new PolylineAnnotationElement(parameters);
+
+      case AnnotationType.POLYGON:
+        return new PolygonAnnotationElement(parameters);
+
       case AnnotationType.HIGHLIGHT:
         return new HighlightAnnotationElement(parameters);
 
@@ -492,6 +498,46 @@ class WidgetAnnotationElement extends AnnotationElement {
         return '';
     }
   }
+
+  /**
+   * Get all annotations with the same name.
+   *
+   * @private
+   * @param {Object} element
+   * @memberof WidgetAnnotationElement
+   * @returns {Array}
+   */
+  _getAnnotationsByName(element) {
+    let annotations = [];
+    let ctrls = document.getElementsByTagName(element.tagName);
+    for (let index in ctrls) {
+      if (ctrls[index].type === element.type &&
+          ctrls[index].getAttribute('annotation-name') ===
+          element.getAttribute('annotation-name')) {
+        annotations.push(ctrls[index]);
+      }
+    }
+
+    return annotations;
+  }
+
+   /**
+   * Get checkmark/radio button symbols.
+   *
+   * @private
+   * @memberof WidgetAnnotationElement
+   * @returns {Array}
+   */
+  _getCheckmarkSymbols() {
+    let checkMarkSymbols = [];
+    checkMarkSymbols[AnnotationCheckboxType.CHECK] = '✓';
+    checkMarkSymbols[AnnotationCheckboxType.CIRCLE] = '●';
+    checkMarkSymbols[AnnotationCheckboxType.CROSS] = '✕';
+    checkMarkSymbols[AnnotationCheckboxType.DIAMOND] = '◆';
+    checkMarkSymbols[AnnotationCheckboxType.SQUARE] = '■';
+    checkMarkSymbols[AnnotationCheckboxType.STAR] = '★';
+    return checkMarkSymbols;
+  }
 }
 
 class TextWidgetAnnotationElement extends WidgetAnnotationElement {
@@ -511,6 +557,10 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     const TEXT_ALIGNMENT = ['left', 'center', 'right'];
     this.container.className = 'textWidgetAnnotation';
+
+    if (!this.data.readOnly) {
+      this.container.title = this.data.alternativeText;
+    }
 
     let element = null;
     let font = null;
@@ -652,14 +702,17 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     this.container.className = 'buttonWidgetAnnotation checkBox ';
 
+    if (!this.data.readOnly) {
+      this.container.title = this.data.alternativeText;
+    }
+
     let element = document.createElement('input');
     element.setAttribute('annotation-name',
       encodeURIComponent(this.data.fieldName));
     element.disabled = this.data.readOnly;
     element.type = 'checkbox';
-    if (this.data.fieldValue && this.data.fieldValue !== 'Off') {
-      element.setAttribute('checked', true);
-    }
+    element.checked = this.data.fieldValue && this.data.fieldValue !== 'Off';
+    element.checkBoxType = this.data.checkBoxType;
 
     if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
       element.className = 'inset';
@@ -671,38 +724,58 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
 
     this.container.appendChild(element);
 
+    // We have to create a div with checkbox symbol
+    // in order to deal with background color, when
+    // div with text handles onclick event.
     let span = document.createElement('span');
 
-    let checkMarkSymbols = {};
-    checkMarkSymbols[AnnotationCheckboxType.CHECK] = '✓';
-    checkMarkSymbols[AnnotationCheckboxType.CIRCLE] = '●';
-    checkMarkSymbols[AnnotationCheckboxType.CROSS] = '✕';
-    checkMarkSymbols[AnnotationCheckboxType.DIAMOND] = '◆';
-    checkMarkSymbols[AnnotationCheckboxType.SQUARE] = '■';
-    checkMarkSymbols[AnnotationCheckboxType.STAR] = '★';
+    let checkMarkSymbols = this._getCheckmarkSymbols();
 
-    span.innerHTML = element.getAttribute('checked') ?
-      checkMarkSymbols[this.data.checkBoxType] : '';
+    span.innerHTML = element.checked ?
+      checkMarkSymbols[element.checkBoxType] : '';
 
-    let self = this;
     element.onchange = () => {
       span.innerHTML = element.checked ?
-        checkMarkSymbols[self.data.checkBoxType] : '';
+        checkMarkSymbols[element.checkBoxType] : '';
+
+      let annotations = this._getAnnotationsByName(element);
+      for (let index in annotations) {
+        if (annotations[index] !== element &&
+            annotations[index].parentElement) {
+          annotations[index].checked = element.checked;
+          var annotationSpans =
+            annotations[index].parentElement.getElementsByTagName('span');
+          if (annotationSpans.length > 0) {
+            annotationSpans[0].innerHTML = element.checked ?
+              checkMarkSymbols[annotations[index].checkBoxType] : '';
+          }
+        }
+      }
     };
 
     span.onclick = () => {
-      element.checked = false;
-      span.innerHTML = '';
+      if (!element.disabled) {
+        element.checked = false;
+        element.onchange();
+      }
     };
 
     let fontSizeFactor =
         this.data.checkBoxType === AnnotationCheckboxType.CIRCLE ||
         this.data.checkBoxType === AnnotationCheckboxType.DIAMOND ||
-        this.data.checkBoxType === AnnotationCheckboxType.SQUARE ?
-        1.5 : 1.0;
+        this.data.checkBoxType === AnnotationCheckboxType.SQUARE ? 1.5 :
+        this.data.checkBoxType === AnnotationCheckboxType.STAR ? 0.5 : 1.0;
+
+    let fontSizePadding =
+        this.data.checkBoxType !== AnnotationCheckboxType.STAR &&
+        (this.data.borderStyle.style === AnnotationBorderStyleType.INSET ||
+        this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) ?
+        4 : 0;
+
+    span.style.lineHeight = this.container.style.height;
 
     span.style.fontSize = (parseFloat(this.container.style.height) *
-      fontSizeFactor) + 'px';
+      fontSizeFactor - fontSizePadding) + 'px';
 
     span.style.color = this.data.fontColor;
     this.container.className +=
@@ -732,6 +805,10 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     this.container.className = 'buttonWidgetAnnotation radioButton ';
 
+    if (!this.data.readOnly) {
+      this.container.title = this.data.alternativeText;
+    }
+
     let element = document.createElement('input');
     element.name = encodeURIComponent(this.data.fieldName);
     element.setAttribute('annotation-name',
@@ -740,8 +817,10 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
     element.disabled = this.data.readOnly;
     element.type = 'radio';
     if (this.data.fieldValue === this.data.buttonValue) {
-      element.setAttribute('checked', true);
+      element.checked = true;
     }
+
+    element.radioButtonType = this.data.radioButtonType;
 
     if (this.data.radioButtonType === AnnotationCheckboxType.CIRCLE) {
       element.style.width = this.container.style.width =
@@ -761,13 +840,43 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
 
     let span = document.createElement('span');
 
-    var fontSizeFactor =
-    this.data.checkBoxType === AnnotationCheckboxType.DIAMOND ||
-    this.data.checkBoxType === AnnotationCheckboxType.SQUARE ?
-    1.5 : 1.0;
+    let checkMarkSymbols = this._getCheckmarkSymbols();
+
+    span.innerHTML = element.checked ?
+      checkMarkSymbols[element.radioButtonType] : '';
+
+    element.onchange = () => {
+      span.innerHTML = checkMarkSymbols[element.radioButtonType];
+
+      let annotations = document.getElementsByName(element.name);
+      for (let index in annotations) {
+        if (annotations[index] !== element &&
+            annotations[index].parentElement) {
+          var annotationSpans =
+            annotations[index].parentElement.getElementsByTagName('span');
+          if (annotationSpans.length > 0) {
+            annotationSpans[0].innerHTML = '';
+          }
+        }
+      }
+    };
+
+    let fontSizeFactor =
+    this.data.radioButtonType === AnnotationCheckboxType.CIRCLE ||
+    this.data.radioButtonType === AnnotationCheckboxType.DIAMOND ||
+    this.data.radioButtonType === AnnotationCheckboxType.SQUARE ? 1.5 :
+    this.data.radioButtonType === AnnotationCheckboxType.STAR ? 0.5 : 1.0;
+
+    let fontSizePadding =
+      this.data.radioButtonType !== AnnotationCheckboxType.STAR &&
+      (this.data.borderStyle.style === AnnotationBorderStyleType.INSET ||
+      this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) ?
+      4 : 0;
+
+    span.style.lineHeight = this.container.style.height;
 
     span.style.fontSize = (parseFloat(this.container.style.height) *
-      fontSizeFactor) + 'px';
+      fontSizeFactor - fontSizePadding) + 'px';
 
     span.style.color = this.data.fontColor;
     this.container.className +=
@@ -806,6 +915,14 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         encodeURIComponent(this.data.fieldName));
       selectElement.disabled = this.data.readOnly;
 
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+        selectElement.className = 'inset';
+      }
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+        selectElement.className = 'beveled';
+      }
+
       style = selectElement.style;
 
       this._setElementFont(selectElement);
@@ -828,7 +945,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         optionElement.value = option.exportValue;
         optionElement.setAttribute('name', itemName);
 
-        if (this.data.fieldValue.indexOf(option.displayValue) >= 0) {
+        if (this.data.fieldValue.indexOf(option.exportValue) >= 0) {
           optionElement.setAttribute('selected', true);
         }
 
@@ -843,11 +960,19 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       let comboElement = document.createElement('input');
       comboElement.type = 'text';
-      comboElement.readOnly = true;
+      comboElement.readOnly = !this.data.customText;
       comboElement.setAttribute('annotation-name',
         encodeURIComponent(this.data.fieldName));
       comboElement.style.height = this.container.style.height;
       comboElement.style.width = this.container.style.width;
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+        comboElement.className = 'inset';
+      }
+
+      if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+        comboElement.className = 'beveled';
+      }
 
       style = comboElement.style;
 
@@ -960,8 +1085,11 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       }
 
       comboElementDiv.appendChild(comboElement);
-      comboElementDiv.appendChild(spanElement);
-      comboElementDiv.appendChild(comboContent);
+
+      if (!this.data.readOnly) {
+        comboElementDiv.appendChild(spanElement);
+        comboElementDiv.appendChild(comboContent);
+      }
 
       this.container.appendChild(comboElementDiv);
     }
@@ -1048,7 +1176,7 @@ class PopupAnnotationElement extends AnnotationElement {
   render() {
     // Do not render popup annotations for parent elements with these types as
     // they create the popups themselves (because of custom trigger divs).
-    const IGNORE_TYPES = ['Line', 'Square', 'Circle'];
+    const IGNORE_TYPES = ['Line', 'Square', 'Circle', 'PolyLine', 'Polygon'];
 
     this.container.className = 'popupAnnotation';
 
@@ -1355,6 +1483,75 @@ class CircleAnnotationElement extends AnnotationElement {
     this._createPopup(this.container, circle, data);
 
     return this.container;
+  }
+}
+
+class PolylineAnnotationElement extends AnnotationElement {
+  constructor(parameters) {
+    let isRenderable = !!(parameters.data.hasPopup ||
+                          parameters.data.title || parameters.data.contents);
+    super(parameters, isRenderable, /* ignoreBorder = */ true);
+
+    this.containerClassName = 'polylineAnnotation';
+    this.svgElementName = 'svg:polyline';
+  }
+
+  /**
+   * Render the polyline annotation's HTML element in the empty container.
+   *
+   * @public
+   * @memberof PolylineAnnotationElement
+   * @returns {HTMLSectionElement}
+   */
+  render() {
+    this.container.className = this.containerClassName;
+
+    // Create an invisible polyline with the same points that acts as the
+    // trigger for the popup. Only the polyline itself should trigger the
+    // popup, not the entire container.
+    let data = this.data;
+    let width = data.rect[2] - data.rect[0];
+    let height = data.rect[3] - data.rect[1];
+    let svg = this.svgFactory.create(width, height);
+
+    // Convert the vertices array to a single points string that the SVG
+    // polyline element expects ("x1,y1 x2,y2 ..."). PDF coordinates are
+    // calculated from a bottom left origin, so transform the polyline
+    // coordinates to a top left origin for the SVG element.
+    let vertices = data.vertices;
+    let points = [];
+    for (let i = 0, ii = vertices.length; i < ii; i++) {
+      let x = vertices[i].x - data.rect[0];
+      let y = data.rect[3] - vertices[i].y;
+      points.push(x + ',' + y);
+    }
+    points = points.join(' ');
+
+    let borderWidth = data.borderStyle.width;
+    let polyline = this.svgFactory.createElement(this.svgElementName);
+    polyline.setAttribute('points', points);
+    polyline.setAttribute('stroke-width', borderWidth);
+    polyline.setAttribute('stroke', 'transparent');
+    polyline.setAttribute('fill', 'none');
+
+    svg.appendChild(polyline);
+    this.container.append(svg);
+
+    // Create the popup ourselves so that we can bind it to the polyline
+    // instead of to the entire container (which is the default).
+    this._createPopup(this.container, polyline, data);
+
+    return this.container;
+  }
+}
+
+class PolygonAnnotationElement extends PolylineAnnotationElement {
+  constructor(parameters) {
+    // Polygons are specific forms of polylines, so reuse their logic.
+    super(parameters);
+
+    this.containerClassName = 'polygonAnnotation';
+    this.svgElementName = 'svg:polygon';
   }
 }
 
