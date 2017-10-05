@@ -68,7 +68,7 @@
 }
 
 .annotationLayer .buttonWidgetAnnotation.checkBox input + span,
-.annotationLayer .buttonWidgetAnnotation.radioButton input + span::before {
+.annotationLayer .buttonWidgetAnnotation.radioButton input + span {
   cursor: pointer;
 }
 
@@ -216,6 +216,7 @@
 
 .annotationLayer .buttonWidgetAnnotation.checkBox input:checked + span,
 .annotationLayer .buttonWidgetAnnotation.radioButton input:checked + span {
+  font-family: Helvetica, sans-serif;
   position: absolute;
   left: 50%;
   top: 50%;
