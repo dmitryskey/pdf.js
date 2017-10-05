@@ -221,7 +221,8 @@ describe('annotation', function() {
       dict.set('BG', [0.4]);
       annotation.setBackgroundColor(dict);
 
-      expect(annotation.backgroundColor).toEqual(new Uint8Array([102, 102, 102]));
+      expect(annotation.backgroundColor).toEqual(
+        new Uint8Array([102, 102, 102]));
     });
 
     it('should set and get a grayscale border color', function() {
