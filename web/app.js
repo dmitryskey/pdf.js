@@ -95,6 +95,8 @@ let PDFViewerApplication = {
   pdfDocument: null,
   pdfLoadingTask: null,
   printService: null,
+  transformationService: null,
+  fieldsData: null,
   /** @type {PDFViewer} */
   pdfViewer: null,
   /** @type {PDFThumbnailViewer} */
@@ -696,30 +698,7 @@ let PDFViewerApplication = {
 
     return loadingTask.promise.then((pdfDocument) => {
       this.load(pdfDocument);
-    }, (exception) => {
-      let message = exception && exception.message;
-      let loadingErrorMessage;
-      if (exception instanceof InvalidPDFException) {
-        // change error message also for other builds
-        loadingErrorMessage = this.l10n.get('invalid_file_error', null,
-                                            'Invalid or corrupted PDF file.');
-      } else if (exception instanceof MissingPDFException) {
-        // special message for missing PDF's
-        loadingErrorMessage = this.l10n.get('missing_file_error', null,
-                                            'Missing PDF file.');
-      } else if (exception instanceof UnexpectedResponseException) {
-        loadingErrorMessage = this.l10n.get('unexpected_response_error', null,
-                                            'Unexpected server response.');
-      } else {
-        loadingErrorMessage = this.l10n.get('loading_error', null,
-          'An error occurred while loading the PDF.');
-      }
-
-      return loadingErrorMessage.then((msg) => {
-        this.error(msg, { message, });
-        throw new Error(msg);
-      });
-    });
+    }, this.handleException);
   },
 
   download() {
@@ -738,17 +717,50 @@ let PDFViewerApplication = {
       this.error(`PDF failed to download: ${err}`);
     };
 
-    // When the PDF document isn't ready, or the PDF file is still downloading,
-    // simply download using the URL.
-    if (!this.pdfDocument || !this.downloadComplete) {
-      downloadByUrl();
-      return;
-    }
+    let xhr = new XMLHttpRequest();
+    xhr.open('POST', this.transformationService);
 
-    this.pdfDocument.getData().then(function(data) {
-      let blob = createBlob(data, 'application/pdf');
-      downloadManager.download(blob, url, filename);
-    }).catch(downloadByUrl); // Error occurred, try downloading with the URL.
+    xhr.setRequestHeader('Content-Type', 'application/json');
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let parameters = this.pdfLoadingTask.src;
+
+        parameters.url = null;
+
+        let binary_string = atob(xhr.response);
+        let len = binary_string.length;
+        parameters.data = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          parameters.data[i] = binary_string.charCodeAt(i);
+        }
+
+        let loadingTask = getDocument(parameters);
+
+        return loadingTask.promise.then((pdfDocument) => {
+          // When the PDF document isn't ready,
+          // or the PDF file is still downloading,
+          // simply download using the URL.
+          if (!pdfDocument || !this.downloadComplete) {
+            downloadByUrl();
+            return;
+          }
+
+          pdfDocument.getData().then((data) => {
+            let blob = createBlob(data, 'application/pdf');
+            downloadManager.download(blob, url, filename);
+          }).catch(downloadByUrl);
+          // Error occurred, try downloading with the URL.
+        }, this.handleException);
+      }
+    };
+
+    xhr.onerror = () => {
+      // this.error(xhr.status, { xhr.statusText, });
+      throw new Error(xhr.statusText);
+    };
+
+    xhr.send(JSON.stringify(this.fieldsData));
   },
 
   fallback(featureId) {
@@ -770,6 +782,35 @@ let PDFViewerApplication = {
         PDFViewerApplication.download();
       });
     }
+  },
+
+  handleException(exception) {
+    let message = exception && exception.message;
+    let loadingErrorMessage;
+    if (exception instanceof InvalidPDFException) {
+      // change error message also for other builds
+      loadingErrorMessage = this.l10n.get(
+        'invalid_file_error', null,
+        'Invalid or corrupted PDF file.');
+    } else if (exception instanceof MissingPDFException) {
+      // special message for missing PDF's
+      loadingErrorMessage = this.l10n.get(
+        'missing_file_error', null,
+        'Missing PDF file.');
+    } else if (exception instanceof UnexpectedResponseException) {
+      loadingErrorMessage = this.l10n.get(
+        'unexpected_response_error', null,
+        'Unexpected server response.');
+    } else {
+      loadingErrorMessage = this.l10n.get(
+        'loading_error', null,
+        'An error occurred while loading the PDF.');
+    }
+
+    return loadingErrorMessage.then((msg) => {
+      this.error(msg, { message, });
+      throw new Error(msg);
+    });
   },
 
   /**
@@ -1224,7 +1265,7 @@ let PDFViewerApplication = {
     let pagesOverview = this.pdfViewer.getPagesOverview();
     let printContainer = this.appConfig.printContainer;
     let printService = PDFPrintServiceFactory.instance.createPrintService(
-      this.pdfDocument, pagesOverview, printContainer, this.l10n);
+      pagesOverview, printContainer, this.l10n);
     this.printService = printService;
     this.forceRendering();
 
@@ -1244,6 +1285,10 @@ let PDFViewerApplication = {
       this.printService = null;
     }
     this.forceRendering();
+  },
+
+  print() {
+    window.print();
   },
 
   rotatePages(delta) {
@@ -1285,8 +1330,8 @@ let PDFViewerApplication = {
     eventBus.on('presentationmodechanged', webViewerPresentationModeChanged);
     eventBus.on('presentationmode', webViewerPresentationMode);
     eventBus.on('openfile', webViewerOpenFile);
-    eventBus.on('print', webViewerPrint);
-    eventBus.on('download', webViewerDownload);
+    // eventBus.on('print', webViewerPrint);
+    // eventBus.on('download', webViewerDownload);
     eventBus.on('firstpage', webViewerFirstPage);
     eventBus.on('lastpage', webViewerLastPage);
     eventBus.on('nextpage', webViewerNextPage);
@@ -1351,8 +1396,8 @@ let PDFViewerApplication = {
     eventBus.off('presentationmodechanged', webViewerPresentationModeChanged);
     eventBus.off('presentationmode', webViewerPresentationMode);
     eventBus.off('openfile', webViewerOpenFile);
-    eventBus.off('print', webViewerPrint);
-    eventBus.off('download', webViewerDownload);
+    // eventBus.off('print', webViewerPrint);
+    // eventBus.off('download', webViewerDownload);
     eventBus.off('firstpage', webViewerFirstPage);
     eventBus.off('lastpage', webViewerLastPage);
     eventBus.off('nextpage', webViewerNextPage);
@@ -1858,12 +1903,14 @@ function webViewerOpenFile() {
     document.getElementById(openFileInputName).click();
   }
 }
+/*
 function webViewerPrint() {
   window.print();
 }
 function webViewerDownload() {
   PDFViewerApplication.download();
 }
+*/
 function webViewerFirstPage() {
   if (PDFViewerApplication.pdfDocument) {
     PDFViewerApplication.page = 1;

@@ -142,6 +142,13 @@
   cursor: pointer;
 }
 
+.annotationLayer .textWidgetAnnotation .invalid,
+.annotationLayer .choiceWidgetAnnotation .invalid,
+.annotationLayer .buttonWidgetAnnotation.checkBox .invalid,
+.annotationLayer .buttonWidgetAnnotation.radioButton .invalid {
+  border-color: red;
+}
+
 .annotationLayer .textWidgetAnnotation input:focus,
 .annotationLayer .textWidgetAnnotation textarea:focus,
 .annotationLayer .choiceWidgetAnnotation select:focus,

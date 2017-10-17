@@ -660,6 +660,7 @@ class WidgetAnnotation extends Annotation {
     }
 
     data.readOnly = this.hasFieldFlag(AnnotationFieldFlag.READONLY);
+    data.required = this.hasFieldFlag(AnnotationFieldFlag.REQUIRED);
 
     // Hide signatures because we cannot validate them.
     if (data.fieldType === 'Sig') {

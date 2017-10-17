@@ -582,6 +582,10 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
 
       element.disabled = this.data.readOnly;
 
+      if (this.data.required) {
+        element.setAttribute('annotation-required', true);
+      }
+
       if (this.data.maxLen !== null) {
         element.maxLength = this.data.maxLen;
       }

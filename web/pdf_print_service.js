@@ -14,8 +14,8 @@
  */
 
 import { CSS_UNITS, NullL10n } from './ui_utils';
+import { getDocument, PDFJS } from 'pdfjs-lib';
 import { PDFPrintServiceFactory, PDFViewerApplication } from './app';
-import { PDFJS } from 'pdfjs-lib';
 
 let activeService = null;
 let overlayManager = null;
@@ -26,7 +26,7 @@ function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
   var scratchCanvas = activeService.scratchCanvas;
 
   // The size of the canvas in pixels for printing.
-  var PRINT_RESOLUTION = 600;
+  var PRINT_RESOLUTION = 300;
   var PRINT_UNITS = PRINT_RESOLUTION / 72.0;
   scratchCanvas.width = Math.floor(size.width * PRINT_UNITS);
   scratchCanvas.height = Math.floor(size.height * PRINT_UNITS);
@@ -41,7 +41,7 @@ function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
   ctx.fillRect(0, 0, scratchCanvas.width, scratchCanvas.height);
   ctx.restore();
 
-  return pdfDocument.getPage(pageNumber).then(function (pdfPage) {
+  return pdfDocument.getPage(pageNumber).then((pdfPage) => {
     var renderContext = {
       canvasContext: ctx,
       transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
@@ -49,7 +49,7 @@ function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
       intent: 'print',
     };
     return pdfPage.render(renderContext).promise;
-  }).then(function () {
+  }).then(() => {
     return {
       width,
       height,
@@ -57,8 +57,7 @@ function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
   });
 }
 
-function PDFPrintService(pdfDocument, pagesOverview, printContainer, l10n) {
-  this.pdfDocument = pdfDocument;
+function PDFPrintService(pagesOverview, printContainer, l10n) {
   this.pagesOverview = pagesOverview;
   this.printContainer = printContainer;
   this.l10n = l10n || NullL10n;
@@ -118,7 +117,7 @@ PDFPrintService.prototype = {
     this.scratchCanvas.width = this.scratchCanvas.height = 0;
     this.scratchCanvas = null;
     activeService = null;
-    ensureOverlay().then(function () {
+    ensureOverlay().then(() => {
       if (overlayManager.active !== 'printServiceOverlay') {
         return; // overlay was already closed
       }
@@ -128,22 +127,68 @@ PDFPrintService.prototype = {
 
   renderPages() {
     var pageCount = this.pagesOverview.length;
-    var renderNextPage = (resolve, reject) => {
-      this.throwIfInactive();
-      if (++this.currentPage >= pageCount) {
-        renderProgress(pageCount, pageCount, this.l10n);
-        resolve();
-        return;
-      }
-      var index = this.currentPage;
-      renderProgress(index, pageCount, this.l10n);
-      renderPage(this, this.pdfDocument, index + 1, this.pagesOverview[index])
-        .then(this.useRenderedPage.bind(this))
-        .then(function () {
-          renderNextPage(resolve, reject);
-        }, reject);
-    };
-    return new Promise(renderNextPage);
+
+    return new Promise((resolve, reject) => {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', PDFViewerApplication.transformationService);
+
+      xhr.setRequestHeader('Content-Type', 'application/json');
+
+      renderProgress(1, pageCount + 1, this.l10n);
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          var parameters = PDFViewerApplication.pdfLoadingTask.src;
+
+          parameters.url = null;
+
+          var binary_string = atob(xhr.response);
+          var len = binary_string.length;
+          parameters.data = new Uint8Array(len);
+          for (var i = 0; i < len; i++) {
+            parameters.data[i] = binary_string.charCodeAt(i);
+          }
+
+          var loadingTask = getDocument(parameters);
+
+          return loadingTask.promise.then((pdfDocument) => {
+            var renderNextPage = () => {
+              this.throwIfInactive();
+              if (++this.currentPage >= pageCount) {
+                renderProgress(pageCount + 1, pageCount + 1, this.l10n);
+                resolve();
+                return;
+              }
+
+              var index = this.currentPage;
+              renderProgress(index + 1, pageCount + 1, this.l10n);
+              renderPage(this, pdfDocument, index + 1,
+                this.pagesOverview[index])
+                .then(this.useRenderedPage.bind(this))
+                .then(() => {
+                  renderNextPage();
+                }, reject);
+            };
+
+            renderNextPage();
+          }, PDFViewerApplication.handleException);
+        }
+
+        reject(new Error({
+          status: this.status,
+          statusText: xhr.statusText,
+        }));
+      };
+
+      xhr.onerror = () => {
+        reject(new Error({
+          status: this.status,
+          statusText: xhr.statusText,
+        }));
+      };
+
+      xhr.send(JSON.stringify(PDFViewerApplication.fieldsData));
+    });
   },
 
   useRenderedPage(printItem) {
@@ -165,7 +210,7 @@ PDFPrintService.prototype = {
     wrapper.appendChild(img);
     this.printContainer.appendChild(wrapper);
 
-    return new Promise(function (resolve, reject) {
+    return new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
     });
@@ -200,14 +245,13 @@ PDFPrintService.prototype = {
   },
 };
 
-
 var print = window.print;
 window.print = function print() {
   if (activeService) {
     console.warn('Ignored window.print() because of a pending print job.');
     return;
   }
-  ensureOverlay().then(function () {
+  ensureOverlay().then(() => {
     if (activeService) {
       overlayManager.open('printServiceOverlay');
     }
@@ -218,7 +262,7 @@ window.print = function print() {
   } finally {
     if (!activeService) {
       console.error('Expected print service to be initialized.');
-      ensureOverlay().then(function () {
+      ensureOverlay().then(() => {
         if (overlayManager.active === 'printServiceOverlay') {
           overlayManager.close('printServiceOverlay');
         }
@@ -226,11 +270,11 @@ window.print = function print() {
       return; // eslint-disable-line no-unsafe-finally
     }
     var activeServiceOnEntry = activeService;
-    activeService.renderPages().then(function () {
+    activeService.renderPages().then((val) => {
       return activeServiceOnEntry.performPrint();
-    }).catch(function () {
+    }).catch(() => {
       // Ignore any error messages.
-    }).then(function () {
+    }).then(() => {
       // aborts acts on the "active" print request, so we need to check
       // whether the print request (activeServiceOnEntry) is still active.
       // Without the check, an unrelated print request (created after aborting
@@ -270,7 +314,7 @@ function renderProgress(index, total, l10n) {
 
 var hasAttachEvent = !!document.attachEvent;
 
-window.addEventListener('keydown', function(event) {
+window.addEventListener('keydown', (event) => {
   // Intercept Cmd/Ctrl + P in all browsers.
   // Also intercept Cmd/Ctrl + Shift + P in Chrome and Opera
   if (event.keyCode === /* P= */ 80 && (event.ctrlKey || event.metaKey) &&
@@ -291,7 +335,7 @@ window.addEventListener('keydown', function(event) {
   }
 }, true);
 if (hasAttachEvent) {
-  document.attachEvent('onkeydown', function(event) {
+  document.attachEvent('onkeydown', (event) => {
     event = event || window.event;
     if (event.keyCode === /* P= */ 80 && event.ctrlKey) {
       event.keyCode = 0;
@@ -303,7 +347,7 @@ if (hasAttachEvent) {
 if ('onbeforeprint' in window) {
   // Do not propagate before/afterprint events when they are not triggered
   // from within this polyfill. (FF/IE).
-  var stopPropagationIfNeeded = function(event) {
+  var stopPropagationIfNeeded = (event) => {
     if (event.detail !== 'custom' && event.stopImmediatePropagation) {
       event.stopImmediatePropagation();
     }

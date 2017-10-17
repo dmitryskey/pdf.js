@@ -178,6 +178,7 @@ function setPDFNetworkStreamClass(cls) {
 function getDocument(src, pdfDataRangeTransport,
                      passwordCallback, progressCallback) {
   var task = new PDFDocumentLoadingTask();
+  task.src = src;
 
   // Support of the obsolete arguments (for compatibility with API v1.0)
   if (arguments.length > 1) {
