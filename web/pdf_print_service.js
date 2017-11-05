@@ -23,19 +23,20 @@ let overlayManager = null;
 // Renders the page to the canvas of the given print service, and returns
 // the suggested dimensions of the output page.
 function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
-  var scratchCanvas = activeService.scratchCanvas;
+  let scratchCanvas = activeService.scratchCanvas;
 
   // The size of the canvas in pixels for printing.
-  var PRINT_RESOLUTION = 300;
-  var PRINT_UNITS = PRINT_RESOLUTION / 72.0;
+  const PRINT_RESOLUTION = 300;
+  const PRINT_UNITS = PRINT_RESOLUTION / 72.0;
+
   scratchCanvas.width = Math.floor(size.width * PRINT_UNITS);
   scratchCanvas.height = Math.floor(size.height * PRINT_UNITS);
 
   // The physical size of the img as specified by the PDF document.
-  var width = Math.floor(size.width * CSS_UNITS) + 'px';
-  var height = Math.floor(size.height * CSS_UNITS) + 'px';
+  let width = Math.floor(size.width * CSS_UNITS) + 'px';
+  let height = Math.floor(size.height * CSS_UNITS) + 'px';
 
-  var ctx = scratchCanvas.getContext('2d');
+  let ctx = scratchCanvas.getContext('2d');
   ctx.save();
   ctx.fillStyle = 'rgb(255, 255, 255)';
   ctx.fillRect(0, 0, scratchCanvas.width, scratchCanvas.height);
@@ -70,10 +71,10 @@ PDFPrintService.prototype = {
   layout() {
     this.throwIfInactive();
 
-    var body = document.querySelector('body');
+    let body = document.querySelector('body');
     body.setAttribute('data-pdfjsprinting', true);
 
-    var hasEqualPageSizes = this.pagesOverview.every(function (size) {
+    let hasEqualPageSizes = this.pagesOverview.every(function(size) {
       return size.width === this.pagesOverview[0].width &&
              size.height === this.pagesOverview[0].height;
     }, this);
@@ -92,7 +93,7 @@ PDFPrintService.prototype = {
     // https://bugzil.la/851441), the next stylesheet will be ignored and the
     // user has to select the correct paper size in the UI if wanted.
     this.pageStyleSheet = document.createElement('style');
-    var pageSize = this.pagesOverview[0];
+    let pageSize = this.pagesOverview[0];
     this.pageStyleSheet.textContent =
       // "size:<width> <height>" is what we need. But also add "A4" because
       // Firefox incorrectly reports support for the other value.
@@ -193,20 +194,20 @@ PDFPrintService.prototype = {
 
   useRenderedPage(printItem) {
     this.throwIfInactive();
-    var img = document.createElement('img');
+    let img = document.createElement('img');
     img.style.width = printItem.width;
     img.style.height = printItem.height;
 
-    var scratchCanvas = this.scratchCanvas;
+    let scratchCanvas = this.scratchCanvas;
     if (('toBlob' in scratchCanvas) && !PDFJS.disableCreateObjectURL) {
-      scratchCanvas.toBlob(function (blob) {
+      scratchCanvas.toBlob(function(blob) {
         img.src = URL.createObjectURL(blob);
       });
     } else {
       img.src = scratchCanvas.toDataURL();
     }
 
-    var wrapper = document.createElement('div');
+    let wrapper = document.createElement('div');
     wrapper.appendChild(img);
     this.printContainer.appendChild(wrapper);
 
@@ -245,12 +246,14 @@ PDFPrintService.prototype = {
   },
 };
 
-var print = window.print;
+let print = window.print;
+
 window.print = function print() {
   if (activeService) {
     console.warn('Ignored window.print() because of a pending print job.');
     return;
   }
+
   ensureOverlay().then(() => {
     if (activeService) {
       overlayManager.open('printServiceOverlay');
@@ -288,7 +291,7 @@ window.print = function print() {
 };
 
 function dispatchEvent(eventType) {
-  var event = document.createEvent('CustomEvent');
+  let event = document.createEvent('CustomEvent');
   event.initCustomEvent(eventType, false, false, 'custom');
   window.dispatchEvent(event);
 }
@@ -301,10 +304,10 @@ function abort() {
 }
 
 function renderProgress(index, total, l10n) {
-  var progressContainer = document.getElementById('printServiceOverlay');
-  var progress = Math.round(100 * index / total);
-  var progressBar = progressContainer.querySelector('progress');
-  var progressPerc = progressContainer.querySelector('.relative-progress');
+  let progressContainer = document.getElementById('printServiceOverlay');
+  let progress = Math.round(100 * index / total);
+  let progressBar = progressContainer.querySelector('progress');
+  let progressPerc = progressContainer.querySelector('.relative-progress');
   progressBar.value = progress;
   l10n.get('print_progress_percent', { progress, }, progress + '%').
       then((msg) => {
@@ -312,7 +315,7 @@ function renderProgress(index, total, l10n) {
   });
 }
 
-var hasAttachEvent = !!document.attachEvent;
+let hasAttachEvent = !!document.attachEvent;
 
 window.addEventListener('keydown', (event) => {
   // Intercept Cmd/Ctrl + P in all browsers.
@@ -347,7 +350,7 @@ if (hasAttachEvent) {
 if ('onbeforeprint' in window) {
   // Do not propagate before/afterprint events when they are not triggered
   // from within this polyfill. (FF/IE).
-  var stopPropagationIfNeeded = (event) => {
+  let stopPropagationIfNeeded = (event) => {
     if (event.detail !== 'custom' && event.stopImmediatePropagation) {
       event.stopImmediatePropagation();
     }
@@ -356,7 +359,7 @@ if ('onbeforeprint' in window) {
   window.addEventListener('afterprint', stopPropagationIfNeeded);
 }
 
-var overlayPromise;
+let overlayPromise;
 function ensureOverlay() {
   if (!overlayPromise) {
     overlayManager = PDFViewerApplication.overlayManager;
