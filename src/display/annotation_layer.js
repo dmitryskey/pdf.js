@@ -691,6 +691,7 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
   constructor(parameters) {
     super(parameters, parameters.renderInteractiveForms);
   }
+
   /**
    * Render the checkbox widget annotation's HTML element
    * in the empty container.
