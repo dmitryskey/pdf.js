@@ -43,7 +43,7 @@ function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
   ctx.restore();
 
   return pdfDocument.getPage(pageNumber).then((pdfPage) => {
-    var renderContext = {
+    let renderContext = {
       canvasContext: ctx,
       transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
       viewport: pdfPage.getViewport(1, size.rotation),
@@ -127,10 +127,10 @@ PDFPrintService.prototype = {
   },
 
   renderPages() {
-    var pageCount = this.pagesOverview.length;
+    let pageCount = this.pagesOverview.length;
 
     return new Promise((resolve, reject) => {
-      var xhr = new XMLHttpRequest();
+      let xhr = new XMLHttpRequest();
       xhr.open('POST', PDFViewerApplication.transformationService);
 
       xhr.setRequestHeader('Content-Type', 'application/json');
@@ -139,21 +139,21 @@ PDFPrintService.prototype = {
 
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
-          var parameters = PDFViewerApplication.pdfLoadingTask.src;
+          let parameters = PDFViewerApplication.pdfLoadingTask.src;
 
           parameters.url = null;
 
-          var binary_string = atob(xhr.response);
-          var len = binary_string.length;
+          let binary_string = atob(xhr.response);
+          let len = binary_string.length;
           parameters.data = new Uint8Array(len);
-          for (var i = 0; i < len; i++) {
+          for (let i = 0; i < len; i++) {
             parameters.data[i] = binary_string.charCodeAt(i);
           }
 
-          var loadingTask = getDocument(parameters);
+          let loadingTask = getDocument(parameters);
 
           return loadingTask.promise.then((pdfDocument) => {
-            var renderNextPage = () => {
+            let renderNextPage = () => {
               this.throwIfInactive();
               if (++this.currentPage >= pageCount) {
                 renderProgress(pageCount + 1, pageCount + 1, this.l10n);
@@ -161,7 +161,7 @@ PDFPrintService.prototype = {
                 return;
               }
 
-              var index = this.currentPage;
+              let index = this.currentPage;
               renderProgress(index + 1, pageCount + 1, this.l10n);
               renderPage(this, pdfDocument, index + 1,
                 this.pagesOverview[index])
@@ -272,7 +272,7 @@ window.print = function print() {
       });
       return; // eslint-disable-line no-unsafe-finally
     }
-    var activeServiceOnEntry = activeService;
+    let activeServiceOnEntry = activeService;
     activeService.renderPages().then((val) => {
       return activeServiceOnEntry.performPrint();
     }).catch(() => {
