@@ -888,7 +888,9 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
       if (controlType) {
         this.data.radioButtonType = controlType;
       }
+    }
 
+    if (this.data.checkBox || this.data.radioButton) {
       // The button's value corresponds to its appearance state.
       let appearanceStates = params.dict.get('AP');
       if (!isDict(appearanceStates)) {

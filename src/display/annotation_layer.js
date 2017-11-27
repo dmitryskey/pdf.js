@@ -675,17 +675,32 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
       style.fontFamily = fontFamily + fallbackName;
     }
 
+    var self = this;
+
+    element.onblur = () => {
+      if (!style.fontSize && !self.data.multiLine) {
+        style.fontSize = self._calculateFontAutoSize(element, element.value);
+      }
+
+      let annotations = self._getAnnotationsByName(element);
+      for (let index in annotations) {
+        if (annotations[index] !== element &&
+            annotations[index].getAttribute('annotation-value') ===
+            element.getAttribute('annotation-value')) {
+          annotations[index].value = element.value;
+        }
+      }
+    };
+
     // Auto size
     if (!style.fontSize && !this.data.multiLine) {
-      var self = this;
-
-      window.setTimeout(function(element, self) {
+      window.setTimeout((element, self) => {
         element.style.fontSize =
           self._calculateFontAutoSize(element, element.value);
       }, 100, element, this);
 
-      element.onkeypress = element.onblur = function() {
-        style.fontSize = self._calculateFontAutoSize(this, this.value);
+      element.onkeypress = () => {
+        style.fontSize = self._calculateFontAutoSize(element, element.value);
       };
     }
   }
@@ -714,6 +729,8 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
     let element = document.createElement('input');
     element.setAttribute('annotation-name',
       encodeURIComponent(this.data.fieldName));
+    element.setAttribute('annotation-value',
+      this.data.buttonValue ? encodeURIComponent(this.data.buttonValue) : '');
     element.disabled = this.data.readOnly;
     element.type = 'checkbox';
     element.checked = this.data.fieldValue && this.data.fieldValue !== 'Off';
@@ -746,6 +763,8 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
       let annotations = this._getAnnotationsByName(element);
       for (let index in annotations) {
         if (annotations[index] !== element &&
+            annotations[index].getAttribute('annotation-value') ===
+            element.getAttribute('annotation-value') &&
             annotations[index].parentElement) {
           annotations[index].checked = element.checked;
           var annotationSpans =
@@ -914,6 +933,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
     let i, ii, style;
     let itemName = encodeURIComponent(this.data.fieldName) + '_item';
 
+    let self = this;
+
     if (!this.data.combo) {
       let selectElement = document.createElement('select');
       selectElement.setAttribute('annotation-name',
@@ -944,7 +965,6 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       // Insert the options into the choice field.
       for (i = 0, ii = this.data.options.length; i < ii; i++) {
         let option = this.data.options[i];
-
         let optionElement = document.createElement('option');
         optionElement.textContent = option.displayValue;
         optionElement.value = option.exportValue;
@@ -956,6 +976,22 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
         selectElement.appendChild(optionElement);
       }
+
+      selectElement.onblur = () => {
+        let annotations = self._getAnnotationsByName(selectElement);
+        for (let index in annotations) {
+          if (annotations[index] !== selectElement &&
+              annotations[index].getAttribute('annotation-value') ===
+              selectElement.getAttribute('annotation-value')) {
+            for (let i = 0; i < selectElement.options.length; i++) {
+              if (i < annotations[index].options.length) {
+                annotations[index].options[i].selected =
+                  selectElement.options[i].selected;
+              }
+            }
+          }
+        }
+      };
 
       this.container.appendChild(selectElement);
     } else {
@@ -981,8 +1017,6 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       style = comboElement.style;
 
-      let self = this;
-
       this._setElementFont(comboElement);
 
       this._setBackgroundColor(comboElement, this.data.backgroundColor);
@@ -990,13 +1024,20 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let comboContent = document.createElement('div');
       comboContent.className = 'combo-content';
 
-      // In ES6 () => syntax causes transpiler conversion of
-      // 'this' into the class reference
-      comboElement.onblur = function() {
-        if (!this.selected) {
+      comboElement.onblur = () => {
+        if (!comboElement.selected) {
           comboContent.classList.remove('show');
           self.container.style.position = '';
           self.container.style.zIndex = '';
+        }
+
+        let annotations = self._getAnnotationsByName(comboElement);
+        for (let index in annotations) {
+          if (annotations[index] !== comboElement &&
+              annotations[index].getAttribute('annotation-value') ===
+              comboElement.getAttribute('annotation-value')) {
+            annotations[index].value = comboElement.value;
+          }
         }
       };
 
