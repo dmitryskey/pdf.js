@@ -539,10 +539,6 @@ let PDFViewerApplication = {
     return this.pdfDocument ? this.pdfDocument.numPages : 0;
   },
 
-  get pageRotation() {
-    return this.pdfViewer.pagesRotation;
-  },
-
   set page(val) {
     this.pdfViewer.currentPageNumber = val;
   },
@@ -772,7 +768,34 @@ let PDFViewerApplication = {
 
     return loadingTask.promise.then((pdfDocument) => {
       this.load(pdfDocument);
-    }, this.handleException);
+    }, (exception) => {
+      if (loadingTask !== this.pdfLoadingTask) {
+        return; // Ignore errors for previously opened PDF files.
+      }
+
+      let message = exception && exception.message;
+      let loadingErrorMessage;
+      if (exception instanceof InvalidPDFException) {
+        // change error message also for other builds
+        loadingErrorMessage = this.l10n.get('invalid_file_error', null,
+                                            'Invalid or corrupted PDF file.');
+      } else if (exception instanceof MissingPDFException) {
+        // special message for missing PDF's
+        loadingErrorMessage = this.l10n.get('missing_file_error', null,
+                                            'Missing PDF file.');
+      } else if (exception instanceof UnexpectedResponseException) {
+        loadingErrorMessage = this.l10n.get('unexpected_response_error', null,
+                                            'Unexpected server response.');
+      } else {
+        loadingErrorMessage = this.l10n.get('loading_error', null,
+          'An error occurred while loading the PDF.');
+      }
+
+      return loadingErrorMessage.then((msg) => {
+        this.error(msg, { message, });
+        throw new Error(msg);
+      });
+    });
   },
 
   download() {
