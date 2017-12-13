@@ -143,7 +143,11 @@ PDFPrintService.prototype = {
 
           parameters.url = null;
 
-          let binary_string = atob(xhr.response);
+          let respJson = JSON.parse(xhr.response);
+
+          PDFViewerApplication.sessionID = respJson.session_id;
+
+          let binary_string = atob(respJson.form);
           let len = binary_string.length;
           parameters.data = new Uint8Array(len);
           for (let i = 0; i < len; i++) {
@@ -188,6 +192,8 @@ PDFPrintService.prototype = {
         }));
       };
 
+      PDFViewerApplication.fieldsData.session_id =
+          PDFViewerApplication.sessionID;
       xhr.send(JSON.stringify(PDFViewerApplication.fieldsData));
     });
   },
