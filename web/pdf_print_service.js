@@ -141,7 +141,7 @@ PDFPrintService.prototype = {
         if (xhr.status >= 200 && xhr.status < 300) {
           let parameters = PDFViewerApplication.pdfLoadingTask.src;
 
-          parameters.url = null;
+          delete parameters.url;
 
           let respJson = JSON.parse(xhr.response);
 

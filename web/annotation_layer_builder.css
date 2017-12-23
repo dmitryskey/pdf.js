@@ -188,7 +188,6 @@
 .annotationLayer .choiceWidgetAnnotation input + span::before {
   content: '▼';
   right: 0;
-  font-size: 8pt;
   top: 60%;
   transform: translate(0, -60%);
   position: absolute;

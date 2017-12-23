@@ -821,11 +821,15 @@ let PDFViewerApplication = {
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        let parameters = this.pdfLoadingTask.src;
+        let parameters = PDFViewerApplication.pdfLoadingTask.src;
 
-        parameters.url = null;
+        delete parameters.url;
 
-        let binary_string = atob(xhr.response);
+        let respJson = JSON.parse(xhr.response);
+
+        PDFViewerApplication.sessionID = respJson.session_id;
+
+        let binary_string = atob(respJson.form);
         let len = binary_string.length;
         parameters.data = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
@@ -857,6 +861,7 @@ let PDFViewerApplication = {
       throw new Error(xhr.statusText);
     };
 
+    this.fieldsData.session_id = this.sessionID;
     xhr.send(JSON.stringify(this.fieldsData));
   },
 

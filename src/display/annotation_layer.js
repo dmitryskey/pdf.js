@@ -153,11 +153,6 @@ class AnnotationElement {
       page.view[3] - data.rect[3] + page.view[1]
     ]);
 
-    CustomStyle.setProp('transform', container,
-                        'matrix(' + viewport.transform.join(',') + ')');
-    CustomStyle.setProp('transformOrigin', container,
-                        -rect[0] + 'px ' + -rect[1] + 'px');
-
     if (!ignoreBorder && data.borderStyle.width > 0 && data.borderColor) {
       container.style.borderWidth = data.borderStyle.width + 'px';
       if (data.borderStyle.style !== AnnotationBorderStyleType.UNDERLINE) {
@@ -212,11 +207,16 @@ class AnnotationElement {
       }
     }
 
-    container.style.left = rect[0] + 'px';
-    container.style.top = rect[1] + 'px';
+    let scaleX = viewport.transform[0];
+    let scaleY = viewport.transform[3];
 
-    container.style.width = width + 'px';
-    container.style.height = height + 'px';
+    container.style.left = rect[0] * scaleX + 'px';
+    container.style.top = rect[1] * scaleY + 'px';
+
+    container.style.width = width * scaleX + 'px';
+    container.style.height = height * scaleY + 'px';
+
+    container.setAttribute('scale', scaleX);
 
     return container;
   }
@@ -420,6 +420,17 @@ class WidgetAnnotationElement extends AnnotationElement {
     return 'Helvetica, sans-serif';
   }
 
+   /**
+   * Get container scale factor.
+   *
+   * @protected
+   * @memberof WidgetAnnotationElement
+   * @returns {Float}
+   */
+  _getScale() {
+    return parseFloat(this.container.getAttribute('scale'));
+  }
+
   /**
    * Measure annotation's text
    *
@@ -441,6 +452,25 @@ class WidgetAnnotationElement extends AnnotationElement {
   }
 
   /**
+   * Process duplicate annotations
+   *
+   * @protected
+   * @param {WidgetAnnotationElement} annotation
+   * @param {Function} callback function
+   * @memberof WidgetAnnotationElement
+   */
+  _processDuplicates(annotation, callback) {
+    this.layer.querySelectorAll('[annotation-name="' +
+      annotation.getAttribute('annotation-name') + '"][annotation-value="' +
+      annotation.getAttribute('annotation-value') + '"]')
+        .forEach((a) => {
+          if (a !== annotation) {
+            callback(annotation, a);
+          }
+        });
+  }
+
+  /**
    * Calculate font auto size.
    *
    * @private
@@ -456,7 +486,7 @@ class WidgetAnnotationElement extends AnnotationElement {
 
     let fSize = 2;
     let sizeStep = 0.1;
-    for (fSize = 2; fSize < maxHeight - 2; fSize += sizeStep) {
+    for (fSize = 2; fSize < maxHeight * 0.8; fSize += sizeStep) {
       let m = this._measureText(text,
         (style.fontStyle ? style.fontStyle + ' ' : '') +
         (style.fontWeight ? style.fontWeight + ' ' : '') +
@@ -496,28 +526,6 @@ class WidgetAnnotationElement extends AnnotationElement {
       default:
         return '';
     }
-  }
-
-  /**
-   * Get all annotations with the same name.
-   *
-   * @private
-   * @param {Object} element
-   * @memberof WidgetAnnotationElement
-   * @returns {Array}
-   */
-  _getAnnotationsByName(element) {
-    let annotations = [];
-    let ctrls = document.getElementsByTagName(element.tagName);
-    for (let index in ctrls) {
-      if (ctrls[index].type === element.type &&
-          ctrls[index].getAttribute('annotation-name') ===
-          element.getAttribute('annotation-name')) {
-        annotations.push(ctrls[index]);
-      }
-    }
-
-    return annotations;
   }
 
    /**
@@ -655,7 +663,8 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
     }
 
     if (this.data.fontSize) {
-      style.fontSize = this.data.fontSize + 'px';
+      style.fontSize = this.data.fontSize *
+      this._getScale() + 'px';
     }
 
     if (this.data.fontDirection) {
@@ -681,14 +690,9 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
         style.fontSize = self._calculateFontAutoSize(element, element.value);
       }
 
-      let annotations = self._getAnnotationsByName(element);
-      for (let index in annotations) {
-        if (annotations[index] !== element &&
-            annotations[index].getAttribute('annotation-value') ===
-            element.getAttribute('annotation-value')) {
-          annotations[index].value = element.value;
-        }
-      }
+      this._processDuplicates(element, (a, b) => {
+        b.value = a.value;
+      });
     };
 
     // Auto size
@@ -759,21 +763,19 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
       span.innerHTML = element.checked ?
         checkMarkSymbols[element.checkBoxType] : '';
 
-      let annotations = this._getAnnotationsByName(element);
-      for (let index in annotations) {
-        if (annotations[index] !== element &&
-            annotations[index].getAttribute('annotation-value') ===
-            element.getAttribute('annotation-value') &&
-            annotations[index].parentElement) {
-          annotations[index].checked = element.checked;
-          var annotationSpans =
-            annotations[index].parentElement.getElementsByTagName('span');
-          if (annotationSpans.length > 0) {
-            annotationSpans[0].innerHTML = element.checked ?
-              checkMarkSymbols[annotations[index].checkBoxType] : '';
+        this._processDuplicates(element, (a, b) => {
+          if (b.parentElement) {
+            b.checked = a.checked;
+
+            var annotationSpans =
+              b.parentElement.getElementsByTagName('span');
+
+              if (annotationSpans.length > 0) {
+                annotationSpans[0].innerHTML = a.checked ?
+                  checkMarkSymbols[b.checkBoxType] : '';
+            }
           }
-        }
-      }
+        });
     };
 
     span.onclick = () => {
@@ -885,10 +887,10 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
     };
 
     let fontSizeFactor =
-    this.data.radioButtonType === AnnotationCheckboxType.CIRCLE ||
-    this.data.radioButtonType === AnnotationCheckboxType.DIAMOND ||
-    this.data.radioButtonType === AnnotationCheckboxType.SQUARE ? 1.5 :
-    this.data.radioButtonType === AnnotationCheckboxType.STAR ? 0.5 : 1.0;
+      this.data.radioButtonType === AnnotationCheckboxType.CIRCLE ||
+      this.data.radioButtonType === AnnotationCheckboxType.DIAMOND ||
+      this.data.radioButtonType === AnnotationCheckboxType.SQUARE ? 1.5 :
+      this.data.radioButtonType === AnnotationCheckboxType.STAR ? 0.5 : 1.0;
 
     let fontSizePadding =
       this.data.radioButtonType !== AnnotationCheckboxType.STAR &&
@@ -899,7 +901,8 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
     span.style.lineHeight = this.container.style.height;
 
     span.style.fontSize = (parseFloat(this.container.style.height) *
-      fontSizeFactor - fontSizePadding) + 'px';
+      fontSizeFactor - fontSizePadding) *
+      this._getScale() + 'px';
 
     span.style.color = this.data.fontColor;
     this.container.className +=
@@ -996,19 +999,13 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       }
 
       selectElement.onblur = () => {
-        let annotations = self._getAnnotationsByName(selectElement);
-        for (let index in annotations) {
-          if (annotations[index] !== selectElement &&
-              annotations[index].getAttribute('annotation-value') ===
-              selectElement.getAttribute('annotation-value')) {
-            for (let i = 0; i < selectElement.options.length; i++) {
-              if (i < annotations[index].options.length) {
-                annotations[index].options[i].selected =
-                  selectElement.options[i].selected;
-              }
+        this._processDuplicates(selectElement, (a, b) => {
+          for (let i = 0; i < a.options.length; i++) {
+            if (i < b.options.length) {
+              b.options[i].selected = a.options[i].selected;
             }
           }
-        }
+        });
       };
 
       this.container.appendChild(selectElement);
@@ -1049,17 +1046,15 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           self.container.style.zIndex = '';
         }
 
-        let annotations = self._getAnnotationsByName(comboElement);
-        for (let index in annotations) {
-          if (annotations[index] !== comboElement &&
-              annotations[index].getAttribute('annotation-value') ===
-              comboElement.getAttribute('annotation-value')) {
-            annotations[index].value = comboElement.value;
-          }
-        }
+        this._processDuplicates(comboElement, (a, b) => {
+          b.value = a.value;
+        });
       };
 
       let spanElement = document.createElement('span');
+
+      spanElement.style.fontSize = this._getScale() * 10 + 'px';
+
       spanElement.onclick = () => {
         if (!comboElement.disabled) {
           comboElement.focus();
@@ -1074,7 +1069,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       let aElementPadding = 2;
       let downArrowWidth = self._measureText('▼',
-      ('8pt ' + self._getDefaultFontName())).width;
+        spanElement.style.fontSize + ' ' +
+        self._getDefaultFontName()).width;
 
       for (i = 0, ii = this.data.options.length; i < ii; i++) {
         let optionItem = this.data.options[i];
@@ -1085,7 +1081,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         aElement.name = itemName;
         aElement.style.padding = aElementPadding + 'px';
         if (!style.fontSize) {
-          aElement.style.fontSize = '9px';
+          aElement.style.fontSize = this._getScale() * 9 + 'px';
         } else {
           aElement.style.fontSize = style.fontSize;
         }
@@ -1097,8 +1093,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         let aElementWidth = self._measureText(aElement.text,
             (style.fontStyle ? style.fontStyle + ' ' : '') +
             (style.fontWeight ? style.fontWeight + ' ' : '') +
-            (style.fontSize ? style.fontSize : '9') + 'px ' +
-            (style.fontFamily || self._getDefaultFontName()));
+            (style.fontSize ? style.fontSize : this._getScale() * 9 + 'px') +
+            ' ' + (style.fontFamily || self._getDefaultFontName()));
 
         if (aElementWidth.width + downArrowWidth +
             aElementPadding * 2 > comboWidth) {
@@ -1201,7 +1197,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
     }
 
     if (this.data.fontSize) {
-      style.fontSize = this.data.fontSize + 'px';
+      style.fontSize = this.data.fontSize * this._getScale() + 'px';
     }
 
     if (this.data.fontRefName) {
@@ -1850,10 +1846,45 @@ class AnnotationLayer {
       let element = parameters.div.querySelector(
         '[data-annotation-id="' + data.id + '"]');
       if (element) {
-        CustomStyle.setProp('transform', element,
-          'matrix(' + parameters.viewport.transform.join(',') + ')');
+        let scale = parseFloat(element.getAttribute('scale'));
+        let scaleX = parameters.viewport.transform[0];
+        let scaleY = parameters.viewport.transform[3];
+
+        element.style.left = (parseFloat(element.style.left) / scale) *
+          scaleX + 'px';
+        element.style.top = (parseFloat(element.style.top) / scale) *
+          scaleY + 'px';
+
+        element.style.width = (parseFloat(element.style.width) / scale) *
+          scaleX + 'px';
+        element.style.height = (parseFloat(element.style.height) / scale) *
+          scaleY + 'px';
+
+        element.setAttribute('scale', scaleX);
+
+        element.querySelectorAll('*').forEach((e) => {
+          if (e.style.fontSize) {
+            e.style.fontSize = parseFloat(e.style.fontSize) / scale * scaleX +
+              'px';
+          }
+
+          if (e.style.width) {
+            e.style.width = parseFloat(e.style.width) / scale * scaleX +
+            'px';
+          }
+
+          if (e.style.height) {
+            e.style.height = parseFloat(e.style.height) / scale * scaleX +
+            'px';
+          }
+
+          if (e.style.lineHeight) {
+            e.style.lineHeight = element.style.height;
+          }
+        });
       }
     }
+
     parameters.div.removeAttribute('hidden');
   }
 }
