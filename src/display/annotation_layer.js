@@ -19,7 +19,7 @@ import {
 } from './dom_utils';
 import {
   AnnotationBorderStyleType, AnnotationCheckboxType, AnnotationType,
-  stringToPDFString, Util, warn
+  stringToPDFString, unreachable, Util, warn
 } from '../shared/util';
 
 /**
@@ -264,7 +264,7 @@ class AnnotationElement {
    * @memberof AnnotationElement
    */
   render() {
-    throw new Error('Abstract method `AnnotationElement.render` called');
+    unreachable('Abstract method `AnnotationElement.render` called');
   }
 }
 
@@ -528,7 +528,7 @@ class WidgetAnnotationElement extends AnnotationElement {
     }
   }
 
-   /**
+  /**
    * Get checkmark/radio button symbols.
    *
    * @private
@@ -683,14 +683,14 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
       style.fontFamily = fontFamily + fallbackName;
     }
 
-    var self = this;
+    let self = this;
 
     element.onblur = () => {
       if (!style.fontSize && !self.data.multiLine) {
         style.fontSize = self._calculateFontAutoSize(element, element.value);
       }
 
-      this._processDuplicates(element, (a, b) => {
+      self._processDuplicates(element, (a, b) => {
         b.value = a.value;
       });
     };
@@ -759,15 +759,17 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
     span.innerHTML = element.checked ?
       checkMarkSymbols[element.checkBoxType] : '';
 
+    let self = this;
+
     element.onchange = () => {
       span.innerHTML = element.checked ?
         checkMarkSymbols[element.checkBoxType] : '';
 
-        this._processDuplicates(element, (a, b) => {
+        self._processDuplicates(element, (a, b) => {
           if (b.parentElement) {
             b.checked = a.checked;
 
-            var annotationSpans =
+            let annotationSpans =
               b.parentElement.getElementsByTagName('span');
 
               if (annotationSpans.length > 0) {
@@ -999,7 +1001,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       }
 
       selectElement.onblur = () => {
-        this._processDuplicates(selectElement, (a, b) => {
+        self._processDuplicates(selectElement, (a, b) => {
           for (let i = 0; i < a.options.length; i++) {
             if (i < b.options.length) {
               b.options[i].selected = a.options[i].selected;
@@ -1046,7 +1048,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           self.container.style.zIndex = '';
         }
 
-        this._processDuplicates(comboElement, (a, b) => {
+        self._processDuplicates(comboElement, (a, b) => {
           b.value = a.value;
         });
       };
