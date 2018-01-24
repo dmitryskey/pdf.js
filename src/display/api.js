@@ -83,15 +83,25 @@ if (typeof PDFJSDev !== 'undefined' &&
   }) : null;
 }
 
-/** @type IPDFStream */
-var PDFNetworkStream;
+/**
+ * @typedef {function} IPDFStreamFactory
+ * @param {DocumentInitParameters} params The document initialization
+ * parameters. The "url" key is always present.
+ * @return {IPDFStream}
+ */
+
+/** @type IPDFStreamFactory */
+var createPDFNetworkStream;
 
 /**
- * Sets PDFNetworkStream class to be used as alternative PDF data transport.
- * @param {IPDFStream} cls - the PDF data transport.
+ * Sets the function that instantiates a IPDFStream as an alternative PDF data
+ * transport.
+ * @param {IPDFStreamFactory} pdfNetworkStreamFactory - the factory function
+ * that takes document initialization parameters (including a "url") and returns
+ * an instance of IPDFStream.
  */
-function setPDFNetworkStreamClass(cls) {
-  PDFNetworkStream = cls;
+function setPDFNetworkStreamFactory(pdfNetworkStreamFactory) {
+  createPDFNetworkStream = pdfNetworkStreamFactory;
 }
 
 /**
@@ -253,7 +263,7 @@ function getDocument(src) {
       if (rangeTransport) {
         networkStream = new PDFDataTransportStream(params, rangeTransport);
       } else if (!params.data) {
-        networkStream = new PDFNetworkStream(params);
+        networkStream = createPDFNetworkStream(params);
       }
 
       var messageHandler = new MessageHandler(docId, workerId, worker.port);
@@ -782,14 +792,12 @@ var PDFPageProxy = (function PDFPageProxyClosure() {
      * @param {number} scale The desired scale of the viewport.
      * @param {number} rotate Degrees to rotate the viewport. If omitted this
      * defaults to the page rotation.
+     * @param {boolean} dontFlip (optional) If true, axis Y will not be flipped.
      * @return {PageViewport} Contains 'width' and 'height' properties
      * along with transforms required for rendering.
      */
-    getViewport: function PDFPageProxy_getViewport(scale, rotate) {
-      if (arguments.length < 2) {
-        rotate = this.rotate;
-      }
-      return new PageViewport(this.view, scale, rotate, 0, 0);
+    getViewport(scale, rotate = this.rotate, dontFlip = false) {
+      return new PageViewport(this.view, scale, rotate, 0, 0, dontFlip);
     },
     /**
      * @param {GetAnnotationsParameters} params - Annotation parameters.
@@ -2000,10 +2008,12 @@ var WorkerTransport = (function WorkerTransportClosure() {
 
     getMetadata: function WorkerTransport_getMetadata() {
       return this.messageHandler.sendWithPromise('GetMetadata', null).
-        then(function transportMetadata(results) {
+          then((results) => {
         return {
           info: results[0],
           metadata: (results[1] ? new Metadata(results[1]) : null),
+          contentDispositionFilename: (this._fullReader ?
+                                       this._fullReader.filename : null),
         };
       });
     },
@@ -2347,7 +2357,7 @@ export {
   PDFWorker,
   PDFDocumentProxy,
   PDFPageProxy,
-  setPDFNetworkStreamClass,
+  setPDFNetworkStreamFactory,
   version,
   build,
 };
