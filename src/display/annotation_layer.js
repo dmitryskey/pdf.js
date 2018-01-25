@@ -1083,10 +1083,11 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           comboElement.value = selectedItem.text;
 
           let hRatio = comboContent.clientHeight / comboContent.scrollHeight;
-          let pRatio = selectedItemIndex / items.length;
+          let pRatio = (selectedItemIndex + 1) / items.length;
 
           if (hRatio <= pRatio) {
-            comboContent.scrollTop = pRatio * comboContent.scrollHeight;
+            comboContent.scrollTop = selectedItemIndex / items.length *
+              comboContent.scrollHeight;
           } else {
             comboContent.scrollTop = 0;
           }
