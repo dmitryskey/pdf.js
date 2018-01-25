@@ -1044,6 +1044,14 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let comboContent = document.createElement('div');
       comboContent.className = 'combo-content';
 
+      comboContent.onmouseover = () => {
+        comboElement.selected = true;
+      };
+
+      comboContent.onmouseout = () => {
+        comboElement.selected = false;
+      };
+
       comboElement.onkeypress = (event) => {
         if ((event.keyCode ? event.keyCode : event.which) === 13) {
           comboContent.classList.remove(showClass);
@@ -1195,8 +1203,6 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         };
 
         aElement.onmouseover = () => {
-          comboElement.selected = true;
-
           let items = comboContent.getElementsByTagName('a');
 
           for (let i = 0; i < items.length; i++) {
@@ -1207,8 +1213,6 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         };
 
         aElement.onmouseout = () => {
-          comboElement.selected = false;
-
           aElement.classList.remove(hoverClass);
         };
 
