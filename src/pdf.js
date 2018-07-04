@@ -22,15 +22,15 @@ var pdfjsBuild =
   typeof PDFJSDev !== 'undefined' ? PDFJSDev.eval('BUNDLE_BUILD') : void 0;
 
 var pdfjsSharedUtil = require('./shared/util.js');
-var pdfjsDisplayGlobal = require('./display/global.js');
 var pdfjsDisplayAPI = require('./display/api.js');
 var pdfjsDisplayTextLayer = require('./display/text_layer.js');
 var pdfjsDisplayAnnotationLayer = require('./display/annotation_layer.js');
 var pdfjsDisplayDOMUtils = require('./display/dom_utils.js');
 var pdfjsDisplaySVG = require('./display/svg.js');
+let pdfjsDisplayWorkerOptions = require('./display/worker_options.js');
+let pdfjsDisplayAPICompatibility = require('./display/api_compatibility.js');
 
-if (typeof PDFJSDev === 'undefined' ||
-    !PDFJSDev.test('FIREFOX || MOZCENTRAL || CHROME')) {
+if (typeof PDFJSDev === 'undefined' || PDFJSDev.test('GENERIC')) {
   const isNodeJS = require('./shared/is_node.js');
   if (isNodeJS()) {
     let PDFNodeStream = require('./display/node_stream.js').PDFNodeStream;
@@ -43,7 +43,7 @@ if (typeof PDFJSDev === 'undefined' ||
     pdfjsDisplayAPI.setPDFNetworkStreamFactory((params) => {
       return new PDFFetchStream(params);
     });
-   } else {
+  } else {
     let PDFNetworkStream = require('./display/network.js').PDFNetworkStream;
     pdfjsDisplayAPI.setPDFNetworkStreamFactory((params) => {
       return new PDFNetworkStream(params);
@@ -52,8 +52,21 @@ if (typeof PDFJSDev === 'undefined' ||
 } else if (typeof PDFJSDev !== 'undefined' && PDFJSDev.test('CHROME')) {
   let PDFNetworkStream = require('./display/network.js').PDFNetworkStream;
   let PDFFetchStream;
+  let isChromeWithFetchCredentials = function() {
+    // fetch does not include credentials until Chrome 61.0.3138.0 and later.
+    // https://chromium.googlesource.com/chromium/src/+/2e231cf052ca5e68e22baf0008ac9e5e29121707
+    try {
+      // Indexed properties on window are read-only in Chrome 61.0.3151.0+
+      // https://chromium.googlesource.com/chromium/src.git/+/58ab4a971b06dec13e4edf9de8382ca6847f6190
+      window[999] = 123; // should throw. Note: JS strict mode MUST be enabled.
+      delete window[999];
+      return false;
+    } catch (e) {
+      return true;
+    }
+  };
   if (typeof Response !== 'undefined' && 'body' in Response.prototype &&
-      typeof ReadableStream !== 'undefined') {
+      typeof ReadableStream !== 'undefined' && isChromeWithFetchCredentials()) {
     PDFFetchStream = require('./display/fetch_stream.js').PDFFetchStream;
   }
   pdfjsDisplayAPI.setPDFNetworkStreamFactory((params) => {
@@ -65,7 +78,6 @@ if (typeof PDFJSDev === 'undefined' ||
   });
 }
 
-exports.PDFJS = pdfjsDisplayGlobal.PDFJS;
 exports.build = pdfjsDisplayAPI.build;
 exports.version = pdfjsDisplayAPI.version;
 exports.getDocument = pdfjsDisplayAPI.getDocument;
@@ -83,13 +95,20 @@ exports.NativeImageDecoding = pdfjsSharedUtil.NativeImageDecoding;
 exports.UnexpectedResponseException =
   pdfjsSharedUtil.UnexpectedResponseException;
 exports.OPS = pdfjsSharedUtil.OPS;
+exports.VerbosityLevel = pdfjsSharedUtil.VerbosityLevel;
 exports.UNSUPPORTED_FEATURES = pdfjsSharedUtil.UNSUPPORTED_FEATURES;
 exports.createValidAbsoluteUrl = pdfjsSharedUtil.createValidAbsoluteUrl;
 exports.createObjectURL = pdfjsSharedUtil.createObjectURL;
 exports.removeNullCharacters = pdfjsSharedUtil.removeNullCharacters;
 exports.shadow = pdfjsSharedUtil.shadow;
 exports.createBlob = pdfjsSharedUtil.createBlob;
+exports.Util = pdfjsSharedUtil.Util;
 exports.RenderingCancelledException =
   pdfjsDisplayDOMUtils.RenderingCancelledException;
 exports.getFilenameFromUrl = pdfjsDisplayDOMUtils.getFilenameFromUrl;
+exports.LinkTarget = pdfjsDisplayDOMUtils.LinkTarget;
 exports.addLinkAttributes = pdfjsDisplayDOMUtils.addLinkAttributes;
+exports.loadScript = pdfjsDisplayDOMUtils.loadScript;
+exports.GlobalWorkerOptions = pdfjsDisplayWorkerOptions.GlobalWorkerOptions;
+exports.apiCompatibilityParams =
+  pdfjsDisplayAPICompatibility.apiCompatibilityParams;

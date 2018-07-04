@@ -14,7 +14,7 @@
  */
 
 // This getFilenameFromContentDispositionHeader function is adapted from
-// https://github.com/Rob--W/open-in-browser/blob/9f5fcae11cf6d99c503a15894f22efdfcd2075b7/extension/content-disposition.js
+// https://github.com/Rob--W/open-in-browser/blob/7e2e35a38b8b4e981b11da7b2f01df0149049e92/extension/content-disposition.js
 // with the following changes:
 // - Modified to conform to PDF.js's coding style.
 // - Support UTF-8 decoding when TextDecoder is unsupported.
@@ -33,7 +33,7 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
   let needsEncodingFixup = true;
 
   // filename*=ext-value ("ext-value" from RFC 5987, referenced by RFC 6266).
-  let tmp = /(?:^|;)\s*filename\*\s*=\s*([^;\s]+)/i.exec(contentDisposition);
+  let tmp = toParamRegExp('filename\\*', 'i').exec(contentDisposition);
   if (tmp) {
     tmp = tmp[1];
     let filename = rfc2616unquote(tmp);
@@ -54,7 +54,7 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
   }
 
   // filename=value (RFC 5987, section 4.1).
-  tmp = /(?:^|;)\s*filename\s*=\s*([^;\s]+)/.exec(contentDisposition);
+  tmp = toParamRegExp('filename', 'i').exec(contentDisposition);
   if (tmp) {
     tmp = tmp[1];
     let filename = rfc2616unquote(tmp);
@@ -65,27 +65,40 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
   // After this line there are only function declarations. We cannot put
   // "return" here for readability because babel would then drop the function
   // declarations...
-
+  function toParamRegExp(attributePattern, flags) {
+    return new RegExp(
+      '(?:^|;)\\s*' + attributePattern + '\\s*=\\s*' +
+      // Captures: value = token | quoted-string
+      // (RFC 2616, section 3.6 and referenced by RFC 6266 4.1)
+      '(' +
+        '[^";\\s][^;\\s]*' +
+      '|' +
+        '"(?:[^"\\\\]|\\\\"?)+"?' +
+      ')', flags);
+  }
   function textdecode(encoding, value) {
     if (encoding) {
-      if (!/^[^\x00-\xFF]+$/.test(value)) {
+      if (!/^[\x00-\xFF]+$/.test(value)) {
         return value;
       }
       try {
         let decoder = new TextDecoder(encoding, { fatal: true, });
         let bytes = new Array(value.length);
         for (let i = 0; i < value.length; ++i) {
-          bytes[i] = value.charCodeAt(0);
+          bytes[i] = value.charCodeAt(i);
         }
         value = decoder.decode(new Uint8Array(bytes));
         needsEncodingFixup = false;
       } catch (e) {
         // TextDecoder constructor threw - unrecognized encoding.
-        // Or TextDecoder API is not available.
+        // Or TextDecoder API is not available (in IE / Edge).
         if (/^utf-?8$/i.test(encoding)) {
           // UTF-8 is commonly used, try to support it in another way:
-          value = decodeURIComponent(escape(value));
-          needsEncodingFixup = false;
+          try {
+            value = decodeURIComponent(escape(value));
+            needsEncodingFixup = false;
+          } catch (err) {
+          }
         }
       }
     }
@@ -94,7 +107,11 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
   function fixupEncoding(value) {
     if (needsEncodingFixup && /[\x80-\xff]/.test(value)) {
       // Maybe multi-byte UTF-8.
-      return textdecode('utf-8', value);
+      value = textdecode('utf-8', value);
+      if (needsEncodingFixup) {
+        // Try iso-8859-1 encoding.
+        value = textdecode('iso-8859-1', value);
+      }
     }
     return value;
   }
@@ -102,7 +119,7 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
     let matches = [], match;
     // Iterate over all filename*n= and filename*n*= with n being an integer
     // of at least zero. Any non-zero number must not start with '0'.
-    let iter = /(?:^|;)\s*filename\*((?!0\d)\d+)(\*?)\s*=\s*([^;\s]+)/ig;
+    let iter = toParamRegExp('filename\\*((?!0\\d)\\d+)(\\*?)', 'ig');
     while ((match = iter.exec(contentDisposition)) !== null) {
       let [, n, quot, part] = match;
       n = parseInt(n, 10);
@@ -153,7 +170,7 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
     // Decodes "ext-value" from RFC 5987.
     let encodingend = extvalue.indexOf('\'');
     if (encodingend === -1) {
-      // Some servers send "filename*=" without encoding'language' prefix,
+      // Some servers send "filename*=" without encoding 'language' prefix,
       // e.g. in https://github.com/Rob--W/open-in-browser/issues/26
       // Let's accept the value like Firefox (57) (Chrome 62 rejects it).
       return extvalue;
@@ -185,7 +202,7 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
     // encoding = q or b
     // encoded-text = any printable ASCII character other than ? or space.
     //        ... but Firefox permits ? and space.
-    return value.replace(/=\?([\w\-]*)\?([QqBb])\?((?:[^?]|\?(?!=))*)\?=/g,
+    return value.replace(/=\?([\w-]*)\?([QqBb])\?((?:[^?]|\?(?!=))*)\?=/g,
       function(_, charset, encoding, text) {
         if (encoding === 'q' || encoding === 'Q') {
           // RFC 2047 section 4.2.
@@ -196,10 +213,10 @@ function getFilenameFromContentDispositionHeader(contentDisposition) {
           return textdecode(charset, text);
         } // else encoding is b or B - base64 (RFC 2047 section 4.1)
         try {
-          return atob(text);
+          text = atob(text);
         } catch (e) {
-          return text;
         }
+        return textdecode(charset, text);
       });
   }
 

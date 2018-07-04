@@ -14,10 +14,11 @@
  */
 
 import { Catalog, ObjectLoader, XRef } from './obj';
-import { createPromiseCapability, error, info, isArrayBuffer, isNum,
-  isSpace, isString, MissingDataException, OPS, shadow, stringToBytes,
-  stringToPDFString, Util, warn } from '../shared/util';
 import { Dict, isDict, isName, isStream } from './primitives';
+import {
+  getInheritableProperty, info, isArrayBuffer, isNum, isSpace, isString,
+  MissingDataException, OPS, shadow, stringToBytes, stringToPDFString, Util
+} from '../shared/util';
 import { NullStream, Stream, StreamsSequenceStream } from './stream';
 import { AnnotationFactory } from './annotation';
 import { calculateMD5 } from './crypto';
@@ -61,41 +62,23 @@ var Page = (function PageClosure() {
   }
 
   Page.prototype = {
-    getPageProp: function Page_getPageProp(key) {
-      return this.pageDict.get(key);
-    },
-
-    getInheritedPageProp: function Page_getInheritedPageProp(key, getArray) {
-      var dict = this.pageDict, valueArray = null, loopCount = 0;
-      var MAX_LOOP_COUNT = 100;
-      getArray = getArray || false;
-      // Always walk up the entire parent chain, to be able to find
-      // e.g. \Resources placed on multiple levels of the tree.
-      while (dict) {
-        var value = getArray ? dict.getArray(key) : dict.get(key);
-        if (value !== undefined) {
-          if (!valueArray) {
-            valueArray = [];
-          }
-          valueArray.push(value);
-        }
-        if (++loopCount > MAX_LOOP_COUNT) {
-          warn('getInheritedPageProp: maximum loop count exceeded for ' + key);
-          return valueArray ? valueArray[0] : undefined;
-        }
-        dict = dict.get('Parent');
+    /**
+     * @private
+     */
+    _getInheritableProperty(key, getArray = false) {
+      let value = getInheritableProperty({ dict: this.pageDict, key, getArray,
+                                           stopWhenFound: false, });
+      if (!Array.isArray(value)) {
+        return value;
       }
-      if (!valueArray) {
-        return undefined;
+      if (value.length === 1 || !isDict(value[0])) {
+        return value[0];
       }
-      if (valueArray.length === 1 || !isDict(valueArray[0])) {
-        return valueArray[0];
-      }
-      return Dict.merge(this.xref, valueArray);
+      return Dict.merge(this.xref, value);
     },
 
     get content() {
-      return this.getPageProp('Contents');
+      return this.pageDict.get('Contents');
     },
 
     get resources() {
@@ -103,11 +86,12 @@ var Page = (function PageClosure() {
       // present, but can be empty. Some document omit it still, in this case
       // we return an empty dictionary.
       return shadow(this, 'resources',
-                    this.getInheritedPageProp('Resources') || Dict.empty);
+                    this._getInheritableProperty('Resources') || Dict.empty);
     },
 
     get mediaBox() {
-      var mediaBox = this.getInheritedPageProp('MediaBox', true);
+      var mediaBox = this._getInheritableProperty('MediaBox',
+                                                  /* getArray = */ true);
       // Reset invalid media box to letter size.
       if (!Array.isArray(mediaBox) || mediaBox.length !== 4) {
         return shadow(this, 'mediaBox', LETTER_SIZE_MEDIABOX);
@@ -116,7 +100,8 @@ var Page = (function PageClosure() {
     },
 
     get cropBox() {
-      var cropBox = this.getInheritedPageProp('CropBox', true);
+      var cropBox = this._getInheritableProperty('CropBox',
+                                                 /* getArray = */ true);
       // Reset invalid crop box to media box.
       if (!Array.isArray(cropBox) || cropBox.length !== 4) {
         return shadow(this, 'cropBox', this.mediaBox);
@@ -125,7 +110,7 @@ var Page = (function PageClosure() {
     },
 
     get userUnit() {
-      var obj = this.getPageProp('UserUnit');
+      var obj = this.pageDict.get('UserUnit');
       if (!isNum(obj) || obj <= 0) {
         obj = DEFAULT_USER_UNIT;
       }
@@ -146,7 +131,7 @@ var Page = (function PageClosure() {
     },
 
     get rotate() {
-      var rotate = this.getInheritedPageProp('Rotate') || 0;
+      var rotate = this._getInheritableProperty('Rotate') || 0;
       // Normalize rotation so it's a multiple of 90 and between 0 and 270
       if (rotate % 90 !== 0) {
         rotate = 0;
@@ -183,7 +168,7 @@ var Page = (function PageClosure() {
 
     loadResources: function Page_loadResources(keys) {
       if (!this.resourcesPromise) {
-        // TODO: add async getInheritedPageProp and remove this.
+        // TODO: add async `_getInheritableProperty` and remove this.
         this.resourcesPromise = this.pdfManager.ensure(this, 'resources');
       }
       return this.resourcesPromise.then(() => {
@@ -193,7 +178,13 @@ var Page = (function PageClosure() {
       });
     },
 
-    getOperatorList({ handler, task, intent, renderInteractiveForms, }) {
+    getOperatorList({
+      handler,
+      task,
+      annotationTask,
+      intent,
+      renderInteractiveForms,
+    }) {
       var contentStreamPromise = this.pdfManager.ensure(this,
                                                         'getContentStream');
       var resourcesPromise = this.loadResources([
@@ -240,7 +231,8 @@ var Page = (function PageClosure() {
 
       // Fetch the page's annotations and add their operator lists to the
       // page's operator list to render them.
-      var annotationsPromise = this.annotations;
+      var annotationsPromise = this.annotations ?
+        this.annotations : this.getAnnotations(annotationTask);
       return Promise.all([pageListPromise, annotationsPromise]).then(
           function ([pageOpList, annotations]) {
         if (annotations.length === 0) {
@@ -306,9 +298,8 @@ var Page = (function PageClosure() {
       });
     },
 
-    getAnnotationsData: function Page_getAnnotationsData(intent) {
-      var annotationsPromise = this.annotations;
-      return annotationsPromise.then(function (annotations) {
+    getAnnotationsData: function Page_getAnnotationsData(intent, task) {
+      return this.getAnnotations(task).then(function (annotations) {
         var annotationsData = [];
         for (var i = 0, n = annotations.length; i < n; ++i) {
           if (!intent || isAnnotationRenderable(annotations[i], intent)) {
@@ -319,47 +310,10 @@ var Page = (function PageClosure() {
       });
     },
 
-    get annotations() {
-      var AnnotationWorkerTask = (function AnnotationWorkerTaskClosure() {
-        function AnnotationWorkerTask(name) {
-          this.name = name;
-          this.terminated = false;
-          this.capability = createPromiseCapability();
-        }
-
-        AnnotationWorkerTask.prototype = {
-          get finished() {
-            return this.capability.promise;
-          },
-
-          finish() {
-            this.capability.resolve();
-          },
-
-          terminate() {
-            this.terminated = true;
-          },
-
-          ensureNotTerminated() {
-            if (this.terminated) {
-              throw new Error('Annotation worker task was terminated');
-            }
-          },
-        };
-
-        return AnnotationWorkerTask;
-      })();
-
-      // create a blank annotation fonts array
-      // if it's not initialized yet
-      if (this.pdfManager && this.pdfManager.pdfDocument &&
-          this.pdfManager.pdfDocument.acroForm &&
-          !this.pdfManager.pdfDocument.acroForm.annotationFonts) {
-        this.pdfManager.pdfDocument.acroForm.annotationFonts = [];
+    getAnnotations: function Page_getAnnotations(task) {
+      if (this._annotations) {
+        return this._annotations;
       }
-
-      var task = new AnnotationWorkerTask(
-        'GetAnnotationAppereances: page ' + this.pageIndex);
 
       var handler = {};
 
@@ -372,9 +326,6 @@ var Page = (function PageClosure() {
         }
       };
 
-      var pageNum = this.pageIndex + 1;
-      var start = Date.now();
-
       var partialEvaluator = new PartialEvaluator({
         pdfManager: this.pdfManager,
         xref: this.xref,
@@ -386,33 +337,32 @@ var Page = (function PageClosure() {
         options: this.evaluatorOptions,
       });
 
-      var annotationRefs = this.getInheritedPageProp('Annots') || [];
-      var annotationsPromise = [];
+      var annotationRefs = this._getInheritableProperty('Annots') || [];
+      var annotationPromises = [];
       for (var i = 0, n = annotationRefs.length; i < n; ++i) {
         var annotationRef = annotationRefs[i];
-          annotationsPromise.push(AnnotationFactory.create(
+        var annotationPromise = AnnotationFactory.create(
           this.xref,
           annotationRef,
           this.pdfManager,
           this.idFactory,
           partialEvaluator,
           task
-        ));
+        );
+
+        if (annotationPromise) {
+          annotationPromises.push(annotationPromise);
+        }
       }
 
-      return shadow(this, 'annotations',
-        Promise.all(annotationsPromise)).then(function (annotations) {
+      this._annotations =
+        Promise.all(annotationPromises).then(function (annotations) {
+          return annotations;
+        }, function (reason) {
+          return [];
+        });
 
-        task.finish();
-        info('page=' + pageNum + ' - annotations: time=' +
-          (Date.now() - start) +
-          'ms, len=' + annotations.length);
-
-        return annotations;
-      }, function (reason) {
-        error('page=' + pageNum + 'error: ' + reason);
-        return [];
-      });
+      return this._annotations;
     },
   };
 
@@ -505,6 +455,7 @@ var PDFDocument = (function PDFDocumentClosure() {
         this.acroForm = this.catalog.catDict.get('AcroForm');
         if (this.acroForm) {
           this.xfa = this.acroForm.get('XFA');
+          this.acroForm.annotationFonts = [];
           var fields = this.acroForm.get('Fields');
           if ((!fields || !Array.isArray(fields) || fields.length === 0) &&
               !this.xfa) {

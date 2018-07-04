@@ -14,7 +14,8 @@
  */
 
 import {
-  assert, bytesToString, isEvalSupported, shadow, string32, warn
+  assert, bytesToString, isEvalSupported, shadow, string32,
+  UNSUPPORTED_FEATURES, warn
 } from '../shared/util';
 
 function FontLoader(docId) {
@@ -336,13 +337,21 @@ var IsEvalSupportedCached = {
 };
 
 var FontFaceObject = (function FontFaceObjectClosure() {
-  function FontFaceObject(translatedData, options) {
+  function FontFaceObject(translatedData, { isEvalSupported = true,
+                                            disableFontFace = false,
+                                            ignoreErrors = false,
+                                            onUnsupportedFeature = null,
+                                            fontRegistry = null, }) {
     this.compiledGlyphs = Object.create(null);
     // importing translated data
     for (var i in translatedData) {
       this[i] = translatedData[i];
     }
-    this.options = options;
+    this.isEvalSupported = isEvalSupported !== false;
+    this.disableFontFace = disableFontFace === true;
+    this.ignoreErrors = ignoreErrors === true;
+    this._onUnsupportedFeature = onUnsupportedFeature;
+    this.fontRegistry = fontRegistry;
   }
   FontFaceObject.prototype = {
     createNativeFontFace: function FontFaceObject_createNativeFontFace() {
@@ -350,30 +359,20 @@ var FontFaceObject = (function FontFaceObjectClosure() {
         throw new Error('Not implemented: createNativeFontFace');
       }
 
-      if (!this.data) {
-        return null;
-      }
-
-      if (this.options.disableFontFace) {
-        this.disableFontFace = true;
+      if (!this.data || this.disableFontFace) {
         return null;
       }
 
       var nativeFontFace = new FontFace(this.loadedName, this.data, {});
 
-      if (this.options.fontRegistry) {
-        this.options.fontRegistry.registerFont(this);
+      if (this.fontRegistry) {
+        this.fontRegistry.registerFont(this);
       }
       return nativeFontFace;
     },
 
     createFontFaceRule: function FontFaceObject_createFontFaceRule() {
-      if (!this.data) {
-        return null;
-      }
-
-      if (this.options.disableFontFace) {
-        this.disableFontFace = true;
+      if (!this.data || this.disableFontFace) {
         return null;
       }
 
@@ -384,52 +383,63 @@ var FontFaceObject = (function FontFaceObjectClosure() {
       var url = ('url(data:' + this.mimetype + ';base64,' + btoa(data) + ');');
       var rule = '@font-face { font-family:"' + fontName + '";src:' + url + '}';
 
-      if (this.options.fontRegistry) {
-        this.options.fontRegistry.registerFont(this, url);
+      if (this.fontRegistry) {
+        this.fontRegistry.registerFont(this, url);
       }
 
       return rule;
     },
 
-    getPathGenerator:
-        function FontFaceObject_getPathGenerator(objs, character) {
-      if (!(character in this.compiledGlyphs)) {
-        var cmds = objs.get(this.loadedName + '_path_' + character);
-        var current, i, len;
-
-        // If we can, compile cmds into JS for MAXIMUM SPEED
-        if (this.options.isEvalSupported && IsEvalSupportedCached.value) {
-          var args, js = '';
-          for (i = 0, len = cmds.length; i < len; i++) {
-            current = cmds[i];
-
-            if (current.args !== undefined) {
-              args = current.args.join(',');
-            } else {
-              args = '';
-            }
-
-            js += 'c.' + current.cmd + '(' + args + ');\n';
-          }
-          // eslint-disable-next-line no-new-func
-          this.compiledGlyphs[character] = new Function('c', 'size', js);
-        } else {
-          // But fall back on using Function.prototype.apply() if we're
-          // blocked from using eval() for whatever reason (like CSP policies)
-          this.compiledGlyphs[character] = function(c, size) {
-            for (i = 0, len = cmds.length; i < len; i++) {
-              current = cmds[i];
-
-              if (current.cmd === 'scale') {
-                current.args = [size, -size];
-              }
-
-              c[current.cmd].apply(c, current.args);
-            }
-          };
-        }
+    getPathGenerator(objs, character) {
+      if (this.compiledGlyphs[character] !== undefined) {
+        return this.compiledGlyphs[character];
       }
-      return this.compiledGlyphs[character];
+
+      let cmds, current;
+      try {
+        cmds = objs.get(this.loadedName + '_path_' + character);
+      } catch (ex) {
+        if (!this.ignoreErrors) {
+          throw ex;
+        }
+        if (this._onUnsupportedFeature) {
+          this._onUnsupportedFeature({ featureId: UNSUPPORTED_FEATURES.font, });
+        }
+        warn(`getPathGenerator - ignoring character: "${ex}".`);
+
+        return this.compiledGlyphs[character] = function(c, size) {
+          // No-op function, to allow rendering to continue.
+        };
+      }
+
+      // If we can, compile cmds into JS for MAXIMUM SPEED...
+      if (this.isEvalSupported && IsEvalSupportedCached.value) {
+        let args, js = '';
+        for (let i = 0, ii = cmds.length; i < ii; i++) {
+          current = cmds[i];
+
+          if (current.args !== undefined) {
+            args = current.args.join(',');
+          } else {
+            args = '';
+          }
+          js += 'c.' + current.cmd + '(' + args + ');\n';
+        }
+        // eslint-disable-next-line no-new-func
+        return this.compiledGlyphs[character] = new Function('c', 'size', js);
+      }
+      // ... but fall back on using Function.prototype.apply() if we're
+      // blocked from using eval() for whatever reason (like CSP policies).
+      return this.compiledGlyphs[character] = function(c, size) {
+        for (let i = 0, ii = cmds.length; i < ii; i++) {
+          current = cmds[i];
+
+          if (current.cmd === 'scale') {
+            current.args = [size, -size];
+          }
+          c[current.cmd].apply(c, current.args);
+        }
+      };
     },
   };
 

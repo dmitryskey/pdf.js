@@ -14,8 +14,8 @@
  */
 
 import { CSS_UNITS, NullL10n } from './ui_utils';
-import { getDocument, PDFJS } from 'pdfjs-lib';
 import { PDFPrintServiceFactory, PDFViewerApplication } from './app';
+import getDocument from 'pdfjs-lib';
 
 let activeService = null;
 let overlayManager = null;
@@ -58,10 +58,13 @@ function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
   });
 }
 
-function PDFPrintService(pagesOverview, printContainer, l10n) {
+function PDFPrintService(pdfDocument, pagesOverview, printContainer, l10n) {
+  this.pdfDocument = pdfDocument;
   this.pagesOverview = pagesOverview;
   this.printContainer = printContainer;
   this.l10n = l10n || NullL10n;
+  this.disableCreateObjectURL =
+    pdfDocument.loadingParams['disableCreateObjectURL'];
   this.currentPage = -1;
   // The temporary canvas where renderPage paints one page at a time.
   this.scratchCanvas = document.createElement('canvas');
@@ -111,8 +114,8 @@ PDFPrintService.prototype = {
       return;
     }
     this.printContainer.textContent = '';
-    if (this.pageStyleSheet && this.pageStyleSheet.parentNode) {
-      this.pageStyleSheet.parentNode.removeChild(this.pageStyleSheet);
+    if (this.pageStyleSheet) {
+      this.pageStyleSheet.remove();
       this.pageStyleSheet = null;
     }
     this.scratchCanvas.width = this.scratchCanvas.height = 0;
@@ -205,7 +208,7 @@ PDFPrintService.prototype = {
     img.style.height = printItem.height;
 
     let scratchCanvas = this.scratchCanvas;
-    if (('toBlob' in scratchCanvas) && !PDFJS.disableCreateObjectURL) {
+    if (('toBlob' in scratchCanvas) && !this.disableCreateObjectURL) {
       scratchCanvas.toBlob(function(blob) {
         img.src = URL.createObjectURL(blob);
       });
@@ -355,8 +358,8 @@ if (hasAttachEvent) {
 
 if ('onbeforeprint' in window) {
   // Do not propagate before/afterprint events when they are not triggered
-  // from within this polyfill. (FF/IE).
-  let stopPropagationIfNeeded = (event) => {
+  // from within this polyfill. (FF /IE / Chrome 63+).
+  let stopPropagationIfNeeded = function(event) {
     if (event.detail !== 'custom' && event.stopImmediatePropagation) {
       event.stopImmediatePropagation();
     }

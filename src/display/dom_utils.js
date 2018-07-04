@@ -15,9 +15,8 @@
 
 import {
   assert, CMapCompressionType, removeNullCharacters, stringToBytes,
-  unreachable, warn
+  unreachable, Util, warn
 } from '../shared/util';
-import globalScope from '../shared/global_scope';
 
 const DEFAULT_LINK_REL = 'noopener noreferrer nofollow';
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -69,8 +68,9 @@ class DOMCMapReaderFactory {
 
   fetch({ name, }) {
     if (!this.baseUrl) {
-      return Promise.reject(new Error('CMap baseUrl must be specified, ' +
-        'see "PDFJS.cMapUrl" (and also "PDFJS.cMapPacked").'));
+      return Promise.reject(new Error(
+        'The CMap "baseUrl" parameter must be specified, ensure that ' +
+        'the "cMapUrl" and "cMapPacked" API parameters are provided.'));
     }
     if (!name) {
       return Promise.reject(new Error('CMap name must be specified.'));
@@ -135,129 +135,155 @@ class DOMSVGFactory {
   }
 }
 
-class SimpleDOMNode {
-  constructor(nodeName, nodeValue) {
-    this.nodeName = nodeName;
-    this.nodeValue = nodeValue;
+/**
+ * @typedef {Object} PageViewportParameters
+ * @property {Array} viewBox - The xMin, yMin, xMax and yMax coordinates.
+ * @property {number} scale - The scale of the viewport.
+ * @property {number} rotation - The rotation, in degrees, of the viewport.
+ * @property {number} offsetX - (optional) The vertical, i.e. x-axis, offset.
+ *   The default value is `0`.
+ * @property {number} offsetY - (optional) The horizontal, i.e. y-axis, offset.
+ *   The default value is `0`.
+ * @property {boolean} dontFlip - (optional) If true, the x-axis will not be
+ *   flipped. The default value is `false`.
+ */
 
-    Object.defineProperty(this, 'parentNode', { value: null, writable: true, });
-  }
+/**
+ * @typedef {Object} PageViewportCloneParameters
+ * @property {number} scale - (optional) The scale, overriding the one in the
+ *   cloned viewport. The default value is `this.scale`.
+ * @property {number} rotation - (optional) The rotation, in degrees, overriding
+ *   the one in the cloned viewport. The default value is `this.rotation`.
+ * @property {boolean} dontFlip - (optional) If true, the x-axis will not be
+ *   flipped. The default value is `false`.
+ */
 
-  get firstChild() {
-    return this.childNodes[0];
-  }
+/**
+ * PDF page viewport created based on scale, rotation and offset.
+ */
+class PageViewport {
+  /**
+   * @param {PageViewportParameters}
+   */
+  constructor({ viewBox, scale, rotation, offsetX = 0, offsetY = 0,
+                dontFlip = false, }) {
+    this.viewBox = viewBox;
+    this.scale = scale;
+    this.rotation = rotation;
+    this.offsetX = offsetX;
+    this.offsetY = offsetY;
 
-  get nextSibling() {
-    let index = this.parentNode.childNodes.indexOf(this);
-    return this.parentNode.childNodes[index + 1];
-  }
-
-  get textContent() {
-    if (!this.childNodes) {
-      return this.nodeValue || '';
-    }
-    return this.childNodes.map(function(child) {
-      return child.textContent;
-    }).join('');
-  }
-
-  hasChildNodes() {
-    return this.childNodes && this.childNodes.length > 0;
-  }
-}
-
-class SimpleXMLParser {
-  parseFromString(data) {
-    let nodes = [];
-
-    // Remove all comments and processing instructions.
-    data = data.replace(/<\?[\s\S]*?\?>|<!--[\s\S]*?-->/g, '').trim();
-    data = data.replace(/<!DOCTYPE[^>\[]+(\[[^\]]+)?[^>]+>/g, '').trim();
-
-    // Extract all text nodes and replace them with a numeric index in
-    // the nodes.
-    data = data.replace(/>([^<][\s\S]*?)</g, (all, text) => {
-      let length = nodes.length;
-      let node = new SimpleDOMNode('#text', this._decodeXML(text));
-      nodes.push(node);
-      if (node.textContent.trim().length === 0) {
-        return '><'; // Ignore whitespace.
-      }
-      return '>' + length + ',<';
-    });
-
-    // Extract all CDATA nodes.
-    data = data.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,
-        function(all, text) {
-      let length = nodes.length;
-      let node = new SimpleDOMNode('#text', text);
-      nodes.push(node);
-      return length + ',';
-    });
-
-    // Until nodes without '<' and '>' content are present, replace them
-    // with a numeric index in the nodes.
-    let regex =
-      /<([\w\:]+)((?:[\s\w:=]|'[^']*'|"[^"]*")*)(?:\/>|>([\d,]*)<\/[^>]+>)/g;
-    let lastLength;
-    do {
-      lastLength = nodes.length;
-      data = data.replace(regex, function(all, name, attrs, data) {
-        let length = nodes.length;
-        let node = new SimpleDOMNode(name);
-        let children = [];
-        if (data) {
-          data = data.split(',');
-          data.pop();
-          data.forEach(function(child) {
-            let childNode = nodes[+child];
-            childNode.parentNode = node;
-            children.push(childNode);
-          });
-        }
-
-        node.childNodes = children;
-        nodes.push(node);
-        return length + ',';
-      });
-    } while (lastLength < nodes.length);
-
-    // We should only have one root index left, which will be last in the nodes.
-    return {
-      documentElement: nodes.pop(),
-    };
-  }
-
-  _decodeXML(text) {
-    if (text.indexOf('&') < 0) {
-      return text;
+    // creating transform to convert pdf coordinate system to the normal
+    // canvas like coordinates taking in account scale and rotation
+    let centerX = (viewBox[2] + viewBox[0]) / 2;
+    let centerY = (viewBox[3] + viewBox[1]) / 2;
+    let rotateA, rotateB, rotateC, rotateD;
+    rotation = rotation % 360;
+    rotation = rotation < 0 ? rotation + 360 : rotation;
+    switch (rotation) {
+      case 180:
+        rotateA = -1; rotateB = 0; rotateC = 0; rotateD = 1;
+        break;
+      case 90:
+        rotateA = 0; rotateB = 1; rotateC = 1; rotateD = 0;
+        break;
+      case 270:
+        rotateA = 0; rotateB = -1; rotateC = -1; rotateD = 0;
+        break;
+      // case 0:
+      default:
+        rotateA = 1; rotateB = 0; rotateC = 0; rotateD = -1;
+        break;
     }
 
-    return text.replace(/&(#(x[0-9a-f]+|\d+)|\w+);/gi,
-        function(all, entityName, number) {
-      if (number) {
-        if (number[0] === 'x') {
-          number = parseInt(number.substring(1), 16);
-        } else {
-          number = +number;
-        }
-        return String.fromCharCode(number);
-      }
+    if (dontFlip) {
+      rotateC = -rotateC; rotateD = -rotateD;
+    }
 
-      switch (entityName) {
-        case 'amp':
-          return '&';
-        case 'lt':
-          return '<';
-        case 'gt':
-          return '>';
-        case 'quot':
-          return '\"';
-        case 'apos':
-          return '\'';
-      }
-      return '&' + entityName + ';';
+    let offsetCanvasX, offsetCanvasY;
+    let width, height;
+    if (rotateA === 0) {
+      offsetCanvasX = Math.abs(centerY - viewBox[1]) * scale + offsetX;
+      offsetCanvasY = Math.abs(centerX - viewBox[0]) * scale + offsetY;
+      width = Math.abs(viewBox[3] - viewBox[1]) * scale;
+      height = Math.abs(viewBox[2] - viewBox[0]) * scale;
+    } else {
+      offsetCanvasX = Math.abs(centerX - viewBox[0]) * scale + offsetX;
+      offsetCanvasY = Math.abs(centerY - viewBox[1]) * scale + offsetY;
+      width = Math.abs(viewBox[2] - viewBox[0]) * scale;
+      height = Math.abs(viewBox[3] - viewBox[1]) * scale;
+    }
+    // creating transform for the following operations:
+    // translate(-centerX, -centerY), rotate and flip vertically,
+    // scale, and translate(offsetCanvasX, offsetCanvasY)
+    this.transform = [
+      rotateA * scale,
+      rotateB * scale,
+      rotateC * scale,
+      rotateD * scale,
+      offsetCanvasX - rotateA * scale * centerX - rotateC * scale * centerY,
+      offsetCanvasY - rotateB * scale * centerX - rotateD * scale * centerY
+    ];
+
+    this.width = width;
+    this.height = height;
+  }
+
+  /**
+   * Clones viewport, with optional additional properties.
+   * @param {PageViewportCloneParameters} - (optional)
+   * @return {PageViewport} Cloned viewport.
+   */
+  clone({ scale = this.scale, rotation = this.rotation,
+          dontFlip = false, } = {}) {
+    return new PageViewport({
+      viewBox: this.viewBox.slice(),
+      scale,
+      rotation,
+      offsetX: this.offsetX,
+      offsetY: this.offsetY,
+      dontFlip,
     });
+  }
+
+  /**
+   * Converts PDF point to the viewport coordinates. For examples, useful for
+   * converting PDF location into canvas pixel coordinates.
+   * @param {number} x - The x-coordinate.
+   * @param {number} y - The y-coordinate.
+   * @return {Object} Object containing `x` and `y` properties of the
+   *   point in the viewport coordinate space.
+   * @see {@link convertToPdfPoint}
+   * @see {@link convertToViewportRectangle}
+   */
+  convertToViewportPoint(x, y) {
+    return Util.applyTransform([x, y], this.transform);
+  }
+
+  /**
+   * Converts PDF rectangle to the viewport coordinates.
+   * @param {Array} rect - The xMin, yMin, xMax and yMax coordinates.
+   * @return {Array} Array containing corresponding coordinates of the rectangle
+   *   in the viewport coordinate space.
+   * @see {@link convertToViewportPoint}
+   */
+  convertToViewportRectangle(rect) {
+    let tl = Util.applyTransform([rect[0], rect[1]], this.transform);
+    let br = Util.applyTransform([rect[2], rect[3]], this.transform);
+    return [tl[0], tl[1], br[0], br[1]];
+  }
+
+  /**
+   * Converts viewport coordinates to the PDF location. For examples, useful
+   * for converting canvas pixel location into PDF one.
+   * @param {number} x - The x-coordinate.
+   * @param {number} y - The y-coordinate.
+   * @return {Object} Object containing `x` and `y` properties of the
+   *   point in the PDF coordinate space.
+   * @see {@link convertToViewportPoint}
+   */
+  convertToPdfPoint(x, y) {
+    return Util.applyInverseTransform([x, y], this.transform);
   }
 }
 
@@ -274,7 +300,7 @@ var RenderingCancelledException = (function RenderingCancelledException() {
   return RenderingCancelledException;
 })();
 
-var LinkTarget = {
+const LinkTarget = {
   NONE: 0, // Default value.
   SELF: 1,
   BLANK: 2,
@@ -282,7 +308,7 @@ var LinkTarget = {
   TOP: 4,
 };
 
-var LinkTargetStringMap = [
+const LinkTargetStringMap = [
   '',
   '_self',
   '_blank',
@@ -294,8 +320,10 @@ var LinkTargetStringMap = [
  * @typedef ExternalLinkParameters
  * @typedef {Object} ExternalLinkParameters
  * @property {string} url - An absolute URL.
- * @property {LinkTarget} target - The link target.
- * @property {string} rel - The link relationship.
+ * @property {LinkTarget} target - (optional) The link target.
+ *   The default value is `LinkTarget.NONE`.
+ * @property {string} rel - (optional) The link relationship.
+ *   The default value is `DEFAULT_LINK_REL`.
  */
 
 /**
@@ -303,22 +331,16 @@ var LinkTargetStringMap = [
  * @param {HTMLLinkElement} link - The link element.
  * @param {ExternalLinkParameters} params
  */
-function addLinkAttributes(link, params) {
-  var url = params && params.url;
+function addLinkAttributes(link, { url, target, rel, } = {}) {
   link.href = link.title = (url ? removeNullCharacters(url) : '');
 
   if (url) {
-    var target = params.target;
-    if (typeof target === 'undefined') {
-      target = getDefaultSetting('externalLinkTarget');
-    }
-    link.target = LinkTargetStringMap[target];
+    const LinkTargetValues = Object.values(LinkTarget);
+    let targetIndex =
+      LinkTargetValues.includes(target) ? target : LinkTarget.NONE;
+    link.target = LinkTargetStringMap[targetIndex];
 
-    var rel = params.rel;
-    if (typeof rel === 'undefined') {
-      rel = getDefaultSetting('externalLinkRel');
-    }
-    link.rel = rel;
+    link.rel = (typeof rel === 'string' ? rel : DEFAULT_LINK_REL);
   }
 }
 
@@ -332,89 +354,9 @@ function getFilenameFromUrl(url) {
   return url.substring(url.lastIndexOf('/', end) + 1, end);
 }
 
-function getDefaultSetting(id) {
-  // The list of the settings and their default is maintained for backward
-  // compatibility and shall not be extended or modified. See also global.js.
-  var globalSettings = globalScope.PDFJS;
-  switch (id) {
-    case 'pdfBug':
-      return globalSettings ? globalSettings.pdfBug : false;
-    case 'disableAutoFetch':
-      return globalSettings ? globalSettings.disableAutoFetch : false;
-    case 'disableStream':
-      return globalSettings ? globalSettings.disableStream : false;
-    case 'disableRange':
-      return globalSettings ? globalSettings.disableRange : false;
-    case 'disableFontFace':
-      return globalSettings ? globalSettings.disableFontFace : false;
-    case 'disableCreateObjectURL':
-      return globalSettings ? globalSettings.disableCreateObjectURL : false;
-    case 'disableWebGL':
-      return globalSettings ? globalSettings.disableWebGL : true;
-    case 'cMapUrl':
-      return globalSettings ? globalSettings.cMapUrl : null;
-    case 'cMapPacked':
-      return globalSettings ? globalSettings.cMapPacked : false;
-    case 'postMessageTransfers':
-      return globalSettings ? globalSettings.postMessageTransfers : true;
-    case 'workerPort':
-      return globalSettings ? globalSettings.workerPort : null;
-    case 'workerSrc':
-      return globalSettings ? globalSettings.workerSrc : null;
-    case 'disableWorker':
-      return globalSettings ? globalSettings.disableWorker : false;
-    case 'maxImageSize':
-      return globalSettings ? globalSettings.maxImageSize : -1;
-    case 'imageResourcesPath':
-      return globalSettings ? globalSettings.imageResourcesPath : '';
-    case 'isEvalSupported':
-      return globalSettings ? globalSettings.isEvalSupported : true;
-    case 'externalLinkTarget':
-      if (!globalSettings) {
-        return LinkTarget.NONE;
-      }
-      switch (globalSettings.externalLinkTarget) {
-        case LinkTarget.NONE:
-        case LinkTarget.SELF:
-        case LinkTarget.BLANK:
-        case LinkTarget.PARENT:
-        case LinkTarget.TOP:
-          return globalSettings.externalLinkTarget;
-      }
-      warn('PDFJS.externalLinkTarget is invalid: ' +
-           globalSettings.externalLinkTarget);
-      // Reset the external link target, to suppress further warnings.
-      globalSettings.externalLinkTarget = LinkTarget.NONE;
-      return LinkTarget.NONE;
-    case 'externalLinkRel':
-      return globalSettings ? globalSettings.externalLinkRel : DEFAULT_LINK_REL;
-    case 'enableStats':
-      return !!(globalSettings && globalSettings.enableStats);
-    default:
-      throw new Error('Unknown default setting: ' + id);
-  }
-}
-
-function isExternalLinkTargetSet() {
-  var externalLinkTarget = getDefaultSetting('externalLinkTarget');
-  switch (externalLinkTarget) {
-    case LinkTarget.NONE:
-      return false;
-    case LinkTarget.SELF:
-    case LinkTarget.BLANK:
-    case LinkTarget.PARENT:
-    case LinkTarget.TOP:
-      return true;
-  }
-}
-
 class StatTimer {
   constructor(enable = true) {
     this.enabled = !!enable;
-    this.reset();
-  }
-
-  reset() {
     this.started = Object.create(null);
     this.times = [];
   }
@@ -477,8 +419,6 @@ class DummyStatTimer {
     unreachable('Cannot initialize DummyStatTimer.');
   }
 
-  static reset() {}
-
   static time(name) {}
 
   static timeEnd(name) {}
@@ -488,18 +428,30 @@ class DummyStatTimer {
   }
 }
 
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    let script = document.createElement('script');
+    script.src = src;
+
+    script.onload = resolve;
+    script.onerror = function() {
+      reject(new Error(`Cannot load script at: ${script.src}`));
+    };
+    (document.head || document.documentElement).appendChild(script);
+  });
+}
+
 export {
+  PageViewport,
   RenderingCancelledException,
   addLinkAttributes,
-  isExternalLinkTargetSet,
   getFilenameFromUrl,
   LinkTarget,
-  getDefaultSetting,
   DEFAULT_LINK_REL,
   DOMCanvasFactory,
   DOMCMapReaderFactory,
   DOMSVGFactory,
-  SimpleXMLParser,
   StatTimer,
   DummyStatTimer,
+  loadScript,
 };

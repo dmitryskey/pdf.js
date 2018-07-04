@@ -14,7 +14,7 @@
  */
 
 import {
-  cloneObj, isValidRotation, parseQueryString, waitOnEventOrTimeout
+  isValidRotation, parseQueryString, waitOnEventOrTimeout
 } from './ui_utils';
 import { getGlobalEventBus } from './dom_events';
 
@@ -281,23 +281,10 @@ class PDFHistory {
     this._updateInternalState(destination, newState.uid);
 
     if (shouldReplace) {
-      if (typeof PDFJSDev !== 'undefined' &&
-          PDFJSDev.test('FIREFOX || MOZCENTRAL')) {
-        // Providing the third argument causes a SecurityError for file:// URLs.
-        window.history.replaceState(newState, '');
-      } else {
-        window.history.replaceState(newState, '', document.URL);
-      }
+      window.history.replaceState(newState, '');
     } else {
       this._maxUid = this._uid;
-
-      if (typeof PDFJSDev !== 'undefined' &&
-          PDFJSDev.test('FIREFOX || MOZCENTRAL')) {
-        // Providing the third argument causes a SecurityError for file:// URLs.
-        window.history.pushState(newState, '');
-      } else {
-        window.history.pushState(newState, '', document.URL);
-      }
+      window.history.pushState(newState, '');
     }
 
     if (typeof PDFJSDev !== 'undefined' && PDFJSDev.test('CHROME') &&
@@ -316,7 +303,7 @@ class PDFHistory {
     }
     let position = this._position;
     if (temporary) {
-      position = cloneObj(this._position);
+      position = Object.assign(Object.create(null), this._position);
       position.temporary = true;
     }
 

@@ -15,7 +15,8 @@
 
 import {
   AnnotationBorderStyleType, AnnotationCheckboxType, AnnotationFieldFlag,
-  AnnotationFlag, AnnotationType, OPS, stringToBytes, stringToPDFString,
+  AnnotationFlag, AnnotationType, getInheritableProperty, OPS, stringToBytes,
+  stringToPDFString,
   Util, warn
 } from '../shared/util';
 import { Catalog, FileSpec, ObjectLoader } from './obj';
@@ -33,10 +34,6 @@ class AnnotationFactory {
    * @returns {Annotation}
    */
   static create(xref, ref, pdfManager, idFactory, evaluator, task) {
-    if (!xref) {
-      return;
-    }
-
     let dict = xref.fetchIfRef(ref);
 
     if (!isDict(dict)) {
@@ -69,10 +66,10 @@ class AnnotationFactory {
         return Promise.resolve(new TextAnnotation(parameters));
 
       case 'Widget':
-        let fieldType = Util.getInheritableProperty(dict, 'FT');
+        let fieldType = getInheritableProperty({ dict, key: 'FT', });
         fieldType = isName(fieldType) ? fieldType.name : null;
 
-        let widget = new WidgetAnnotation(parameters);
+        let widget;
 
         switch (fieldType) {
           case 'Tx':
@@ -85,12 +82,13 @@ class AnnotationFactory {
             widget = new ChoiceWidgetAnnotation(parameters);
             break;
           default:
+            widget = new WidgetAnnotation(parameters);
             warn('Unimplemented widget field type "' + fieldType + '", ' +
-               'falling back to base field type.');
+                 'falling back to base field type.');
             break;
         }
 
-        return widget.parseAppearance(parameters);
+        return widget.setDefaultAppearance(parameters);
 
       case 'Popup':
         return Promise.resolve(new PopupAnnotation(parameters));
@@ -99,16 +97,16 @@ class AnnotationFactory {
         return Promise.resolve(new LineAnnotation(parameters));
 
       case 'Square':
-        return new SquareAnnotation(parameters);
+        return Promise.resolve(new SquareAnnotation(parameters));
 
       case 'Circle':
-        return new CircleAnnotation(parameters);
+        return Promise.resolve(new CircleAnnotation(parameters));
 
       case 'PolyLine':
-        return new PolylineAnnotation(parameters);
+        return Promise.resolve(new PolylineAnnotation(parameters));
 
       case 'Polygon':
-        return new PolygonAnnotation(parameters);
+        return Promise.resolve(new PolygonAnnotation(parameters));
 
       case 'Highlight':
         return Promise.resolve(new HighlightAnnotation(parameters));
@@ -123,7 +121,7 @@ class AnnotationFactory {
         return Promise.resolve(new StrikeOutAnnotation(parameters));
 
       case 'Stamp':
-        return new StampAnnotation(parameters);
+        return Promise.resolve(new StampAnnotation(parameters));
 
       case 'FileAttachment':
         return Promise.resolve(new FileAttachmentAnnotation(parameters));
@@ -189,6 +187,10 @@ class Annotation {
       id: params.id,
       subtype: params.subtype,
       rect: this.rectangle,
+      annotationFonts: [],
+      fontRefName: null,
+      fontSize: 0,
+      fontColor: null,
     };
   }
 
@@ -281,6 +283,7 @@ class Annotation {
 
   /**
    * Set the color and take care of color space conversion.
+   * The default value is black, in RGB color space.
    *
    * @public
    * @memberof Annotation
@@ -289,7 +292,7 @@ class Annotation {
    *                        4 (CMYK) elements
    */
   setColor(color) {
-    let rgbColor = new Uint8Array(3); // Black in RGB color space (default)
+    let rgbColor = new Uint8ClampedArray(3);
     if (!Array.isArray(color)) {
       this.color = rgbColor;
       return;
@@ -446,7 +449,8 @@ class Annotation {
   }
 
   getColorFromArray(color) {
-    let rgbColor = new Uint8Array(3); // Black in RGB color space (default)
+    // Black in RGB color space (default)
+    let rgbColor = new Uint8ClampedArray(3);
     if (!Array.isArray(color)) {
       return null;
     }
@@ -645,16 +649,16 @@ class WidgetAnnotation extends Annotation {
 
     data.annotationType = AnnotationType.WIDGET;
     data.fieldName = this._constructFieldName(dict);
-    data.fieldValue = Util.getInheritableProperty(dict, 'V',
-                                                  /* getArray = */ true);
-    data.alternativeText = stringToPDFString(Util.getInheritableProperty(
-      dict, 'TU') || '');
-    data.defaultAppearance = Util.getInheritableProperty(dict, 'DA') || '';
-    let fieldType = Util.getInheritableProperty(dict, 'FT');
+    data.fieldValue = getInheritableProperty({ dict, key: 'V',
+                                               getArray: true, });
+    data.alternativeText = stringToPDFString(dict.get('TU') || '');
+    data.defaultAppearance = getInheritableProperty({ dict, key: 'DA', }) || '';
+    let fieldType = getInheritableProperty({ dict, key: 'FT', });
     data.fieldType = isName(fieldType) ? fieldType.name : null;
-    this.fieldResources = Util.getInheritableProperty(dict, 'DR') || Dict.empty;
+    this.fieldResources = getInheritableProperty({ dict, key: 'DR', }) ||
+                          Dict.empty;
 
-    data.fieldFlags = Util.getInheritableProperty(dict, 'Ff');
+    data.fieldFlags = getInheritableProperty({ dict, key: 'Ff', });
     if (!Number.isInteger(data.fieldFlags) || data.fieldFlags < 0) {
       data.fieldFlags = 0;
     }
@@ -729,7 +733,7 @@ class WidgetAnnotation extends Annotation {
   }
 
   /**
-   * Parse widget annotation appearance and extract font infromation.
+   * Set the default appearance (such as fonts and colors).
    *
    * @public
    * @memberof WidgetAnnotation
@@ -737,51 +741,52 @@ class WidgetAnnotation extends Annotation {
    *                        field characteristic
    * @return {Promise}
    */
-  parseAppearance(params) {
+  setDefaultAppearance(params) {
     if (!params.pdfManager || !params.pdfManager.pdfDocument) {
       return Promise.resolve(this);
     }
 
     let data = this.data;
-    let self = this;
+    let pdfDocument = params.pdfManager.pdfDocument;
 
-    let opList = new OperatorList();
+    let opList = new OperatorList(null, null, null, pdfDocument.acroForm);
     let appearanceStream = new Stream(stringToBytes(data.defaultAppearance));
-    let formFonts = params.pdfManager.pdfDocument.acroForm.get('DR');
-    opList.acroForm = params.pdfManager.pdfDocument.acroForm;
+    let formFonts = pdfDocument.acroForm.get('DR');
     return params.evaluator.getOperatorList({
       stream: appearanceStream,
       task: params.task,
       resources: formFonts,
       operatorList: opList,
     }).then(() => {
-      let a = opList.argsArray;
-      let i;
-      for (i = 0; i < opList.fnArray.length; i++) {
+      let args = opList.argsArray;
+      for (let i = 0, ii = opList.fnArray.length; i < ii; i++) {
         let fn = opList.fnArray[i];
         switch (fn | 0) {
           case OPS.setFont:
             data.annotationFonts = opList.acroForm.annotationFonts;
-            data.fontRefName = a[i][0];
-            data.fontSize = a[i][1];
+            data.fontRefName = args[i][0];
+            data.fontSize = args[i][1];
             break;
           case OPS.setGrayFill:
-            if (a[i].length >= 1) {
-              let gray = Math.round(a[i][0] * 0x100);
+            if (args[i].length < 1) {
+              warn('Incorrect annotation gray color length');
+            } else {
+              let gray = Math.round(args[i][0] * 0x100);
               data.fontColor = Util.makeCssRgb(gray, gray, gray);
             }
-
             break;
           case OPS.setFillRGBColor:
-            if (a[i].length >= 3) {
-              data.fontColor = Util.makeCssRgb(a[i][0], a[i][1], a[i][2]);
+            if (args[i].length < 3) {
+              warn('Incorrect annotation RGB color length');
+            } else {
+              data.fontColor = Util.makeCssRgb(
+                args[i][0], args[i][1], args[i][2]);
             }
-
             break;
         }
       }
 
-      return self;
+      return this;
     });
   }
 
@@ -799,18 +804,20 @@ class TextWidgetAnnotation extends WidgetAnnotation {
   constructor(params) {
     super(params);
 
+    const dict = params.dict;
+
     // The field value is always a string.
     this.data.fieldValue = stringToPDFString(this.data.fieldValue || '');
 
     // Determine the alignment of text in the field.
-    let alignment = Util.getInheritableProperty(params.dict, 'Q');
+    let alignment = getInheritableProperty({ dict, key: 'Q', });
     if (!Number.isInteger(alignment) || alignment < 0 || alignment > 2) {
       alignment = null;
     }
     this.data.textAlignment = alignment;
 
     // Determine the maximum length of text in the field.
-    let maximumLength = Util.getInheritableProperty(params.dict, 'MaxLen');
+    let maximumLength = getInheritableProperty({ dict, key: 'MaxLen', });
     if (!Number.isInteger(maximumLength) || maximumLength < 0) {
       maximumLength = null;
     }
@@ -983,7 +990,7 @@ class ChoiceWidgetAnnotation extends WidgetAnnotation {
     // inherit the options from a parent annotation (issue 8094).
     this.data.options = [];
 
-    let options = Util.getInheritableProperty(params.dict, 'Opt');
+    let options = getInheritableProperty({ dict: params.dict, key: 'Opt', });
     if (Array.isArray(options)) {
       let xref = params.xref;
       for (let i = 0, ii = options.length; i < ii; i++) {

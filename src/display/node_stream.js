@@ -28,14 +28,30 @@ import {
 
 const fileUriRegex = /^file:\/\/\/[a-zA-Z]:\//;
 
+function parseUrl(sourceUrl) {
+  let parsedUrl = url.parse(sourceUrl);
+  if (parsedUrl.protocol === 'file:' || parsedUrl.host) {
+    return parsedUrl;
+  }
+  // Prepending 'file:///' to Windows absolute path.
+  if (/^[a-z]:[/\\]/i.test(sourceUrl)) {
+    return url.parse(`file:///${sourceUrl}`);
+  }
+  // Changes protocol to 'file:' if url refers to filesystem.
+  if (!parsedUrl.host) {
+    parsedUrl.protocol = 'file:';
+  }
+  return parsedUrl;
+}
+
 class PDFNodeStream {
   constructor(source) {
     this.source = source;
-    this.url = url.parse(source.url);
+    this.url = parseUrl(source.url);
     this.isHttp = this.url.protocol === 'http:' ||
                   this.url.protocol === 'https:';
     // Check if url refers to filesystem.
-    this.isFsUrl = this.url.protocol === 'file:' || !this.url.host;
+    this.isFsUrl = this.url.protocol === 'file:';
     this.httpHeaders = (this.isHttp && source.httpHeaders) || {};
 
     this._fullRequest = null;
@@ -74,8 +90,7 @@ class BaseFullReader {
   constructor(stream) {
     this._url = stream.url;
     this._done = false;
-    this._errored = false;
-    this._reason = null;
+    this._storedError = null;
     this.onProgress = null;
     let source = stream.source;
     this._contentLength = source.length; // optional
@@ -121,8 +136,8 @@ class BaseFullReader {
       if (this._done) {
         return Promise.resolve({ value: undefined, done: true, });
       }
-      if (this._errored) {
-        return Promise.reject(this._reason);
+      if (this._storedError) {
+        return Promise.reject(this._storedError);
       }
 
       let chunk = this._readableStream.read();
@@ -154,8 +169,7 @@ class BaseFullReader {
   }
 
   _error(reason) {
-    this._errored = true;
-    this._reason = reason;
+    this._storedError = reason;
     this._readCapability.resolve();
   }
 
@@ -183,8 +197,8 @@ class BaseFullReader {
     }
 
     // Destroy ReadableStream if already in errored state.
-    if (this._errored) {
-      this._readableStream.destroy(this._reason);
+    if (this._storedError) {
+      this._readableStream.destroy(this._storedError);
     }
   }
 }
@@ -193,8 +207,7 @@ class BaseRangeReader {
   constructor(stream) {
     this._url = stream.url;
     this._done = false;
-    this._errored = false;
-    this._reason = null;
+    this._storedError = null;
     this.onProgress = null;
     this._loaded = 0;
     this._readableStream = null;
@@ -212,8 +225,8 @@ class BaseRangeReader {
       if (this._done) {
         return Promise.resolve({ value: undefined, done: true, });
       }
-      if (this._errored) {
-        return Promise.reject(this._reason);
+      if (this._storedError) {
+        return Promise.reject(this._storedError);
       }
 
       let chunk = this._readableStream.read();
@@ -242,8 +255,7 @@ class BaseRangeReader {
   }
 
   _error(reason) {
-    this._errored = true;
-    this._reason = reason;
+    this._storedError = reason;
     this._readCapability.resolve();
   }
 
@@ -265,8 +277,8 @@ class BaseRangeReader {
     });
 
     // Destroy readableStream if already in errored state.
-    if (this._errored) {
-      this._readableStream.destroy(this._reason);
+    if (this._storedError) {
+      this._readableStream.destroy(this._storedError);
     }
   }
 }
@@ -304,11 +316,9 @@ class PDFNodeStreamFullReader extends BaseFullReader {
           disableRange: this._disableRange,
         });
 
-      if (allowRangeRequests) {
-        this._isRangeSupported = true;
-      }
+      this._isRangeSupported = allowRangeRequests;
       // Setting right content length.
-      this._contentLength = suggestedLength;
+      this._contentLength = suggestedLength || this._contentLength;
 
       this._filename = extractFilenameFromHeader(getResponseHeader);
     };
@@ -325,8 +335,7 @@ class PDFNodeStreamFullReader extends BaseFullReader {
     }
 
     this._request.on('error', (reason) => {
-      this._errored = true;
-      this._reason = reason;
+      this._storedError = reason;
       this._headersCapability.reject(reason);
     });
     // Note: `request.end(data)` is used to write `data` to request body
@@ -364,8 +373,7 @@ class PDFNodeStreamRangeReader extends BaseRangeReader {
     }
 
     this._request.on('error', (reason) => {
-      this._errored = true;
-      this._reason = reason;
+      this._storedError = reason;
     });
     this._request.end();
   }
@@ -384,8 +392,7 @@ class PDFNodeStreamFsFullReader extends BaseFullReader {
 
     fs.lstat(path, (error, stat) => {
       if (error) {
-        this._errored = true;
-        this._reason = error;
+        this._storedError = error;
         this._headersCapability.reject(error);
         return;
       }

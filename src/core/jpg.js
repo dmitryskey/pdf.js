@@ -28,6 +28,31 @@ let JpegError = (function JpegErrorClosure() {
   return JpegError;
 })();
 
+let DNLMarkerError = (function DNLMarkerErrorClosure() {
+  function DNLMarkerError(message, scanLines) {
+    this.message = message;
+    this.scanLines = scanLines;
+  }
+
+  DNLMarkerError.prototype = new Error();
+  DNLMarkerError.prototype.name = 'DNLMarkerError';
+  DNLMarkerError.constructor = DNLMarkerError;
+
+  return DNLMarkerError;
+})();
+
+let EOIMarkerError = (function EOIMarkerErrorClosure() {
+  function EOIMarkerError(message) {
+    this.message = message;
+  }
+
+  EOIMarkerError.prototype = new Error();
+  EOIMarkerError.prototype.name = 'EOIMarkerError';
+  EOIMarkerError.constructor = EOIMarkerError;
+
+  return EOIMarkerError;
+})();
+
 /**
  * This code was forked from https://github.com/notmasteryet/jpgjs.
  * The original version was created by GitHub user notmasteryet.
@@ -69,9 +94,9 @@ var JpegImage = (function JpegImageClosure() {
   var dctSqrt2 =  5793;   // sqrt(2)
   var dctSqrt1d2 = 2896;  // sqrt(2) / 2
 
-  function JpegImage() {
-    this.decodeTransform = null;
-    this.colorTransform = -1;
+  function JpegImage({ decodeTransform = null, colorTransform = -1, } = {}) {
+    this._decodeTransform = decodeTransform;
+    this._colorTransform = colorTransform;
   }
 
   function buildHuffmanTable(codeLengths, values) {
@@ -112,7 +137,8 @@ var JpegImage = (function JpegImageClosure() {
   }
 
   function decodeScan(data, offset, frame, components, resetInterval,
-                      spectralStart, spectralEnd, successivePrev, successive) {
+                      spectralStart, spectralEnd, successivePrev, successive,
+                      parseDNLMarker = false) {
     var mcusPerLine = frame.mcusPerLine;
     var progressive = frame.progressive;
 
@@ -127,6 +153,17 @@ var JpegImage = (function JpegImageClosure() {
       if (bitsData === 0xFF) {
         var nextByte = data[offset++];
         if (nextByte) {
+          if (nextByte === 0xDC && parseDNLMarker) { // DNL == 0xFFDC
+            offset += 2; // Skip data length.
+            const scanLines = (data[offset++] << 8) | data[offset++];
+            if (scanLines > 0 && scanLines !== frame.scanLines) {
+              throw new DNLMarkerError(
+                'Found DNL marker (0xFFDC) while parsing scan data', scanLines);
+            }
+          } else if (nextByte === 0xD9) { // EOI == 0xFFD9
+            throw new EOIMarkerError(
+              'Found EOI marker (0xFFD9) while parsing scan data');
+          }
           throw new JpegError(
             `unexpected marker ${((bitsData << 8) | nextByte).toString(16)}`);
         }
@@ -369,7 +406,7 @@ var JpegImage = (function JpegImageClosure() {
       // Some bad images seem to pad Scan blocks with e.g. zero bytes, skip past
       // those to attempt to find a valid marker (fixes issue4090.pdf).
       if (fileMarker && fileMarker.invalid) {
-        warn('decodeScan - unexpected MCU data, next marker is: ' +
+        warn('decodeScan - unexpected MCU data, current marker is: ' +
              fileMarker.invalid);
         offset = fileMarker.offset;
       }
@@ -389,7 +426,7 @@ var JpegImage = (function JpegImageClosure() {
     // Some images include more Scan blocks than expected, skip past those and
     // attempt to find the next valid marker (fixes issue8182.pdf).
     if (fileMarker && fileMarker.invalid) {
-      warn('decodeScan - unexpected Scan data, next marker is: ' +
+      warn('decodeScan - unexpected Scan data, current marker is: ' +
            fileMarker.invalid);
       offset = fileMarker.offset;
     }
@@ -601,12 +638,12 @@ var JpegImage = (function JpegImageClosure() {
     return component.blockData;
   }
 
-  function findNextFileMarker(data, currentPos, startPos) {
+  function findNextFileMarker(data, currentPos, startPos = currentPos) {
     function peekUint16(pos) {
       return (data[pos] << 8) | data[pos + 1];
     }
 
-    var maxPos = data.length - 1;
+    const maxPos = data.length - 1;
     var newPos = startPos < currentPos ? startPos : currentPos;
 
     if (currentPos >= maxPos) {
@@ -635,7 +672,7 @@ var JpegImage = (function JpegImageClosure() {
   }
 
   JpegImage.prototype = {
-    parse: function parse(data) {
+    parse(data, { dnlScanLines = null, } = {}) {
 
       function readUint16() {
         var value = (data[offset] << 8) | data[offset + 1];
@@ -649,7 +686,7 @@ var JpegImage = (function JpegImageClosure() {
 
         var fileMarker = findNextFileMarker(data, endOffset, offset);
         if (fileMarker && fileMarker.invalid) {
-          warn('readDataBlock - incorrect length, next marker is: ' +
+          warn('readDataBlock - incorrect length, current marker is: ' +
                fileMarker.invalid);
           endOffset = fileMarker.offset;
         }
@@ -685,6 +722,7 @@ var JpegImage = (function JpegImageClosure() {
       var jfif = null;
       var adobe = null;
       var frame, resetInterval;
+      let numSOSMarkers = 0;
       var quantizationTables = [];
       var huffmanTablesAC = [], huffmanTablesDC = [];
       var fileMarker = readUint16();
@@ -693,7 +731,7 @@ var JpegImage = (function JpegImageClosure() {
       }
 
       fileMarker = readUint16();
-      while (fileMarker !== 0xFFD9) { // EOI (End of image)
+      markerLoop: while (fileMarker !== 0xFFD9) { // EOI (End of image)
         var i, j, l;
         switch (fileMarker) {
           case 0xFFE0: // APP0 (Application Specific)
@@ -781,7 +819,8 @@ var JpegImage = (function JpegImageClosure() {
             frame.extended = (fileMarker === 0xFFC1);
             frame.progressive = (fileMarker === 0xFFC2);
             frame.precision = data[offset++];
-            frame.scanLines = readUint16();
+            const sofScanLines = readUint16();
+            frame.scanLines = dnlScanLines || sofScanLines;
             frame.samplesPerLine = readUint16();
             frame.components = [];
             frame.componentIds = {};
@@ -839,6 +878,12 @@ var JpegImage = (function JpegImageClosure() {
             break;
 
           case 0xFFDA: // SOS (Start of Scan)
+            // A DNL marker (0xFFDC), if it exists, is only allowed at the end
+            // of the first scan segment and may only occur once in an image.
+            // Furthermore, to prevent an infinite loop, do *not* attempt to
+            // parse DNL markers during re-parsing of the JPEG scan data.
+            const parseDNLMarker = (++numSOSMarkers) === 1 && !dnlScanLines;
+
             readUint16(); // scanLength
             var selectorsCount = data[offset++];
             var components = [], component;
@@ -853,11 +898,28 @@ var JpegImage = (function JpegImageClosure() {
             var spectralStart = data[offset++];
             var spectralEnd = data[offset++];
             var successiveApproximation = data[offset++];
-            var processed = decodeScan(data, offset,
-              frame, components, resetInterval,
-              spectralStart, spectralEnd,
-              successiveApproximation >> 4, successiveApproximation & 15);
-            offset += processed;
+            try {
+              var processed = decodeScan(data, offset,
+                frame, components, resetInterval,
+                spectralStart, spectralEnd,
+                successiveApproximation >> 4, successiveApproximation & 15,
+                parseDNLMarker);
+              offset += processed;
+            } catch (ex) {
+              if (ex instanceof DNLMarkerError) {
+                warn(`${ex.message} -- attempting to re-parse the JPEG image.`);
+                return this.parse(data, { dnlScanLines: ex.scanLines, });
+              } else if (ex instanceof EOIMarkerError) {
+                warn(`${ex.message} -- ignoring the rest of the image data.`);
+                break markerLoop;
+              }
+              throw ex;
+            }
+            break;
+
+          case 0xFFDC: // DNL (Define Number of Lines)
+            // Ignore the marker, since it's being handled in `decodeScan`.
+            offset += 4;
             break;
 
           case 0xFFFF: // Fill bytes
@@ -872,6 +934,13 @@ var JpegImage = (function JpegImageClosure() {
               // could be incorrect encoding -- last 0xFF byte of the previous
               // block was eaten by the encoder
               offset -= 3;
+              break;
+            }
+            let nextFileMarker = findNextFileMarker(data, offset - 2);
+            if (nextFileMarker && nextFileMarker.invalid) {
+              warn('JpegImage.parse - unexpected data, current marker is: ' +
+                   nextFileMarker.invalid);
+              offset = nextFileMarker.offset;
               break;
             }
             throw new JpegError('unknown marker ' + fileMarker.toString(16));
@@ -944,7 +1013,7 @@ var JpegImage = (function JpegImageClosure() {
       }
 
       // decodeTransform contains pairs of multiplier (-256..256) and additive
-      var transform = this.decodeTransform;
+      const transform = this._decodeTransform;
       if (transform) {
         for (i = 0; i < dataLength;) {
           for (j = 0, k = 0; j < numComponents; j++, i++, k += 2) {
@@ -961,7 +1030,7 @@ var JpegImage = (function JpegImageClosure() {
         return !!this.adobe.transformCode;
       }
       if (this.numComponents === 3) {
-        if (this.colorTransform === 0) {
+        if (this._colorTransform === 0) {
           // If the Adobe transform marker is not present and the image
           // dictionary has a 'ColorTransform' entry, explicitly set to `0`,
           // then the colours should *not* be transformed.
@@ -970,7 +1039,7 @@ var JpegImage = (function JpegImageClosure() {
         return true;
       }
       // `this.numComponents !== 3`
-      if (this.colorTransform === 1) {
+      if (this._colorTransform === 1) {
         // If the Adobe transform marker is not present and the image
         // dictionary has a 'ColorTransform' entry, explicitly set to `1`,
         // then the colours should be transformed.
@@ -1031,7 +1100,8 @@ var JpegImage = (function JpegImageClosure() {
                0.116935020465145) +
           k * (-0.000343531996510555 * k + 0.24165260232407);
       }
-      return data;
+      // Ensure that only the converted RGB data is returned.
+      return data.subarray(0, offset);
     },
 
     _convertYcckToCmyk: function convertYcckToCmyk(data) {
@@ -1088,7 +1158,8 @@ var JpegImage = (function JpegImageClosure() {
                193.58209356861505) -
           k * (22.33816807309886 * k + 180.12613974708367);
       }
-      return data;
+      // Ensure that only the converted RGB data is returned.
+      return data.subarray(0, offset);
     },
 
     getData: function getData(width, height, forceRGBoutput) {

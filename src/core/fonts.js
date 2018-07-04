@@ -47,7 +47,7 @@ var SKIP_PRIVATE_USE_RANGE_F000_TO_F01F = false;
 // except for Type 3 fonts
 var PDF_GLYPH_SPACE_UNITS = 1000;
 
-// Accented charactars are not displayed properly on Windows, using this flag
+// Accented characters are not displayed properly on Windows, using this flag
 // to control analysis of seac charstrings.
 var SEAC_ANALYSIS_ENABLED = false;
 
@@ -1316,7 +1316,7 @@ var Font = (function FontClosure() {
 
         for (let i = 0; i < numTables; i++) {
           let table = readTableEntry(font);
-          if (VALID_TABLES.indexOf(table.tag) < 0) {
+          if (!VALID_TABLES.includes(table.tag)) {
             continue; // skipping table if it's not a required or optional table
           }
           if (table.length === 0) {
@@ -2107,13 +2107,13 @@ var Font = (function FontClosure() {
             }
           } else if (op === 0x2B && !tooComplexToFollowFunctions) { // CALL
             if (!inFDEF && !inELSE) {
-              // collecting inforamtion about which functions are used
+              // collecting information about which functions are used
               funcId = stack[stack.length - 1];
               ttContext.functionsUsed[funcId] = true;
               if (funcId in ttContext.functionsStackDeltas) {
                 stack.length += ttContext.functionsStackDeltas[funcId];
               } else if (funcId in ttContext.functionsDefined &&
-                         functionsCalled.indexOf(funcId) < 0) {
+                         !functionsCalled.includes(funcId)) {
                 callstack.push({ data, i, stackTop: stack.length - 1, });
                 functionsCalled.push(funcId);
                 pc = ttContext.functionsDefined[funcId];
@@ -2132,7 +2132,7 @@ var Font = (function FontClosure() {
               tooComplexToFollowFunctions = true;
             }
             inFDEF = true;
-            // collecting inforamtion about which functions are defined
+            // collecting information about which functions are defined
             lastDeff = i;
             funcId = stack.pop();
             ttContext.functionsDefined[funcId] = { data, i, };
@@ -2351,7 +2351,7 @@ var Font = (function FontClosure() {
         }
         font.pos += 4;
         maxFunctionDefs = font.getUint16();
-        font.pos += 6;
+        font.pos += 4;
         maxSizeOfInstructions = font.getUint16();
       }
 

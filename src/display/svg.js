@@ -25,8 +25,7 @@ var SVGGraphics = function() {
   throw new Error('Not implemented: SVGGraphics');
 };
 
-if (typeof PDFJSDev === 'undefined' ||
-    PDFJSDev.test('GENERIC || SINGLE_FILE')) {
+if (typeof PDFJSDev === 'undefined' || PDFJSDev.test('GENERIC')) {
 
 var SVG_DEFAULTS = {
   fontStyle: 'normal',
@@ -531,6 +530,9 @@ SVGGraphics = (function SVGGraphicsClosure() {
           case OPS.beginText:
             this.beginText();
             break;
+          case OPS.dependency:
+            // Handled in loadDependencies, warning should not be thrown
+            break;
           case OPS.setLeading:
             this.setLeading(args);
             break;
@@ -993,6 +995,8 @@ SVGGraphics = (function SVGGraphicsClosure() {
         this.extraStack.forEach(function (prev) {
           prev.clipGroup = null;
         });
+        // Intersect with the previous clipping path.
+        clipPath.setAttributeNS(null, 'clip-path', current.activeClipUrl);
       }
       current.activeClipUrl = 'url(#' + clipId + ')';
 
@@ -1067,6 +1071,7 @@ SVGGraphics = (function SVGGraphicsClosure() {
       if (current.element) {
         current.element.setAttributeNS(null, 'fill', current.fillColor);
         current.element.setAttributeNS(null, 'fill-opacity', current.fillAlpha);
+        this.endPath();
       }
     },
 
@@ -1090,6 +1095,8 @@ SVGGraphics = (function SVGGraphicsClosure() {
                                        pf(current.dashPhase) + 'px');
 
         current.element.setAttributeNS(null, 'fill', 'none');
+
+        this.endPath();
       }
     },
 

@@ -80,11 +80,10 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
       var colorSpace = dict.get('ColorSpace', 'CS');
       colorSpace = ColorSpace.parse(colorSpace, this.xref, this.resources,
                                     this.pdfFunctionFactory);
-      var numComps = colorSpace.numComps;
-      var decodePromise = this.handler.sendWithPromise('JpegDecode',
-        [image.getIR(this.forceDataSchema), numComps]);
-      return decodePromise.then(function (message) {
-        var data = message.data;
+
+      return this.handler.sendWithPromise('JpegDecode', [
+        image.getIR(this.forceDataSchema), colorSpace.numComps
+      ]).then(function({ data, width, height, }) {
         return new Stream(data, 0, data.length, image.dict);
       });
     },
@@ -349,22 +348,21 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
       });
     },
 
-    buildPaintImageXObject:
-        function PartialEvaluator_buildPaintImageXObject(resources, image,
-                                                         inline, operatorList,
-                                                         cacheKey, imageCache) {
+    buildPaintImageXObject({ resources, image, isInline = false, operatorList,
+                             cacheKey, imageCache,
+                             forceDisableNativeImageDecoder = false, }) {
       var dict = image.dict;
       var w = dict.get('Width', 'W');
       var h = dict.get('Height', 'H');
 
       if (!(w && isNum(w)) || !(h && isNum(h))) {
         warn('Image dimensions are missing, or not numbers.');
-        return;
+        return Promise.resolve();
       }
       var maxImageSize = this.options.maxImageSize;
       if (maxImageSize !== -1 && w * h > maxImageSize) {
         warn('Image exceeded maximum allowed size and was removed.');
-        return;
+        return Promise.resolve();
       }
 
       var imageMask = (dict.get('ImageMask', 'IM') || false);
@@ -379,7 +377,8 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
         var width = dict.get('Width', 'W');
         var height = dict.get('Height', 'H');
         var bitStrideLength = (width + 7) >> 3;
-        var imgArray = image.getBytes(bitStrideLength * height);
+        var imgArray = image.getBytes(bitStrideLength * height,
+                                      /* forceClamped = */ true);
         var decode = dict.getArray('Decode', 'D');
 
         imgData = PDFImage.createMask({
@@ -398,7 +397,7 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
             args,
           };
         }
-        return;
+        return Promise.resolve();
       }
 
       var softMask = (dict.get('SMask', 'SM') || false);
@@ -406,44 +405,63 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
 
       var SMALL_IMAGE_DIMENSIONS = 200;
       // Inlining small images into the queue as RGB data
-      if (inline && !softMask && !mask && !(image instanceof JpegStream) &&
+      if (isInline && !softMask && !mask && !(image instanceof JpegStream) &&
           (w + h) < SMALL_IMAGE_DIMENSIONS) {
         let imageObj = new PDFImage({
           xref: this.xref,
           res: resources,
           image,
-          isInline: inline,
+          isInline,
           pdfFunctionFactory: this.pdfFunctionFactory,
         });
         // We force the use of RGBA_32BPP images here, because we can't handle
         // any other kind.
         imgData = imageObj.createImageData(/* forceRGBA = */ true);
         operatorList.addOp(OPS.paintInlineImageXObject, [imgData]);
-        return;
+        return Promise.resolve();
       }
 
-      var nativeImageDecoderSupport = this.options.nativeImageDecoderSupport;
+      const nativeImageDecoderSupport = forceDisableNativeImageDecoder ?
+        NativeImageDecoding.NONE : this.options.nativeImageDecoderSupport;
       // If there is no imageMask, create the PDFImage and a lot
       // of image processing can be done here.
       var objId = 'img_' + this.idFactory.createObjId();
-      operatorList.addDependency(objId);
-      args = [objId, w, h];
 
       if (nativeImageDecoderSupport !== NativeImageDecoding.NONE &&
           !softMask && !mask && image instanceof JpegStream &&
           NativeImageDecoder.isSupported(image, this.xref, resources,
                                          this.pdfFunctionFactory)) {
         // These JPEGs don't need any more processing so we can just send it.
-        operatorList.addOp(OPS.paintJpegXObject, args);
-        this.handler.send('obj', [objId, this.pageIndex, 'JpegStream',
-                                  image.getIR(this.options.forceDataSchema)]);
-        if (cacheKey) {
-          imageCache[cacheKey] = {
-            fn: OPS.paintJpegXObject,
-            args,
-          };
-        }
-        return;
+        return this.handler.sendWithPromise('obj', [
+          objId, this.pageIndex, 'JpegStream',
+          image.getIR(this.options.forceDataSchema)
+        ]).then(function() {
+          // Only add the dependency once we know that the native JPEG decoding
+          // succeeded, to ensure that rendering will always complete.
+          operatorList.addDependency(objId);
+          args = [objId, w, h];
+
+          operatorList.addOp(OPS.paintJpegXObject, args);
+          if (cacheKey) {
+            imageCache[cacheKey] = {
+              fn: OPS.paintJpegXObject,
+              args,
+            };
+          }
+        }, (reason) => {
+          warn('Native JPEG decoding failed -- trying to recover: ' +
+               (reason && reason.message));
+          // Try to decode the JPEG image with the built-in decoder instead.
+          return this.buildPaintImageXObject({
+            resources,
+            image,
+            isInline,
+            operatorList,
+            cacheKey,
+            imageCache,
+            forceDisableNativeImageDecoder: true,
+          });
+        });
       }
 
       // Creates native image decoder only if a JPEG image or mask is present.
@@ -460,12 +478,16 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
         });
       }
 
+      // Ensure that the dependency is added before the image is decoded.
+      operatorList.addDependency(objId);
+      args = [objId, w, h];
+
       PDFImage.buildImage({
         handler: this.handler,
         xref: this.xref,
         res: resources,
         image,
-        isInline: inline,
+        isInline,
         nativeDecoder: nativeImageDecoder,
         pdfFunctionFactory: this.pdfFunctionFactory,
       }).then((imageObj) => {
@@ -484,6 +506,7 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
           args,
         };
       }
+      return Promise.resolve();
     },
 
     handleSMask: function PartialEvaluator_handleSmask(smask, resources,
@@ -989,8 +1012,14 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
                     }, rejectXObject);
                   return;
                 } else if (type.name === 'Image') {
-                  self.buildPaintImageXObject(resources, xobj, false,
-                                              operatorList, name, imageCache);
+                  self.buildPaintImageXObject({
+                    resources,
+                    image: xobj,
+                    operatorList,
+                    cacheKey: name,
+                    imageCache,
+                  }).then(resolveXObject, rejectXObject);
+                  return;
                 } else if (type.name === 'PS') {
                   // PostScript XObjects are unused when viewing documents.
                   // See section 4.7.1 of Adobe's PDF reference.
@@ -1032,10 +1061,15 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
                   continue;
                 }
               }
-              self.buildPaintImageXObject(resources, args[0], true,
-                operatorList, cacheKey, imageCache);
-              args = null;
-              continue;
+              next(self.buildPaintImageXObject({
+                resources,
+                image: args[0],
+                isInline: true,
+                operatorList,
+                cacheKey,
+                imageCache,
+              }));
+              return;
             case OPS.showText:
               args[0] = self.handleText(args[0], stateManager.state);
               break;
@@ -1227,7 +1261,8 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
           // notification and allow rendering to continue.
           this.handler.send('UnsupportedFeature',
                             { featureId: UNSUPPORTED_FEATURES.unknown, });
-          warn('getOperatorList - ignoring errors during task: ' + task.name);
+          warn(`getOperatorList - ignoring errors during "${task.name}" ` +
+               `task: "${reason}".`);
 
           closePendingRestoreOPS();
           return;
@@ -1812,7 +1847,8 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
         }
         if (this.options.ignoreErrors) {
           // Error(s) in the TextContent -- allow text-extraction to continue.
-          warn('getTextContent - ignoring errors during task: ' + task.name);
+          warn(`getTextContent - ignoring errors during "${task.name}" ` +
+               `task: "${reason}".`);
 
           flushTextContentItem();
           enqueueChunk();
@@ -2896,6 +2932,8 @@ var EvaluatorPreprocessor = (function EvaluatorPreprocessorClosure() {
     t['null'] = null;
   });
 
+  const MAX_INVALID_PATH_OPS = 20;
+
   function EvaluatorPreprocessor(stream, xref, stateManager) {
     this.opMap = getOPMap();
     // TODO(mduan): pass array of knownCommands rather than this.opMap
@@ -2903,6 +2941,7 @@ var EvaluatorPreprocessor = (function EvaluatorPreprocessorClosure() {
     this.parser = new Parser(new Lexer(stream, this.opMap), false, xref);
     this.stateManager = stateManager;
     this.nonProcessedArgs = [];
+    this._numInvalidPathOPS = 0;
   }
 
   EvaluatorPreprocessor.prototype = {
@@ -2940,7 +2979,7 @@ var EvaluatorPreprocessor = (function EvaluatorPreprocessorClosure() {
           // Check that the command is valid
           var opSpec = this.opMap[cmd];
           if (!opSpec) {
-            warn('Unknown command "' + cmd + '"');
+            warn(`Unknown command "${cmd}".`);
             continue;
           }
 
@@ -2966,18 +3005,28 @@ var EvaluatorPreprocessor = (function EvaluatorPreprocessorClosure() {
             }
 
             if (argsLength < numArgs) {
+              const partialMsg = `command ${cmd}: expected ${numArgs} args, ` +
+                                 `but received ${argsLength} args.`;
+
+              // Incomplete path operators, in particular, can result in fairly
+              // chaotic rendering artifacts. Hence the following heuristics is
+              // used to error, rather than just warn, once a number of invalid
+              // path operators have been encountered (fixes bug1443140.pdf).
+              if ((fn >= OPS.moveTo && fn <= OPS.endPath) && // Path operator
+                  ++this._numInvalidPathOPS > MAX_INVALID_PATH_OPS) {
+                throw new FormatError(`Invalid ${partialMsg}`);
+              }
               // If we receive too few arguments, it's not possible to execute
               // the command, hence we skip the command.
-              warn('Skipping command ' + fn + ': expected ' + numArgs +
-                   ' args, but received ' + argsLength + ' args.');
+              warn(`Skipping ${partialMsg}`);
               if (args !== null) {
                 args.length = 0;
               }
               continue;
             }
           } else if (argsLength > numArgs) {
-            info('Command ' + fn + ': expected [0,' + numArgs +
-                 '] args, but received ' + argsLength + ' args.');
+            info(`Command ${cmd}: expected [0, ${numArgs}] args, ` +
+                 `but received ${argsLength} args.`);
           }
 
           // TODO figure out how to type-check vararg functions
