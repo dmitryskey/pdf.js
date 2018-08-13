@@ -356,7 +356,7 @@ function getTempFile(prefix, suffix) {
   return path;
 }
 
-function createTestSource(testsName) {
+function createTestSource(testsName, bot) {
   var source = stream.Readable({ objectMode: true, });
   source._read = function () {
     console.log();
@@ -394,6 +394,9 @@ function createTestSource(testsName) {
         return null;
     }
     args.push('--browserManifestFile=' + PDF_BROWSERS);
+    if (bot) {
+      args.push('--strictVerify');
+    }
 
     var testProcess = spawn('node', args, { cwd: TEST_DIR, stdio: 'inherit', });
     testProcess.on('close', function (code) {
@@ -403,7 +406,7 @@ function createTestSource(testsName) {
   return source;
 }
 
-function makeRef(done, noPrompts) {
+function makeRef(done, bot) {
   console.log();
   console.log('### Creating reference images');
 
@@ -420,8 +423,8 @@ function makeRef(done, noPrompts) {
   }
 
   var args = ['test.js', '--masterMode'];
-  if (noPrompts) {
-    args.push('--noPrompts');
+  if (bot) {
+    args.push('--noPrompts', '--strictVerify');
   }
   args.push('--browserManifestFile=' + PDF_BROWSERS);
   var testProcess = spawn('node', args, { cwd: TEST_DIR, stdio: 'inherit', });
@@ -941,6 +944,8 @@ gulp.task('lib', ['buildnumber'], function () {
     buildLib,
     gulp.src('external/streams/streams-lib.js', { base: '.', })
       .pipe(gulp.dest('build/')),
+    gulp.src('external/url/url-lib.js', { base: '.', })
+      .pipe(gulp.dest('build/')),
   ]);
 });
 
@@ -978,8 +983,8 @@ gulp.task('test', ['testing-pre', 'generic', 'components'], function() {
 
 gulp.task('bottest', ['testing-pre', 'generic', 'components'], function() {
   return streamqueue({ objectMode: true, },
-    createTestSource('unit'), createTestSource('font'),
-    createTestSource('browser (no reftest)'));
+    createTestSource('unit', true), createTestSource('font', true),
+    createTestSource('browser (no reftest)', true));
 });
 
 gulp.task('browsertest', ['testing-pre', 'generic', 'components'], function() {
@@ -1218,6 +1223,7 @@ gulp.task('dist-pre',
       'http': false,
       'https': false,
       'node-ensure': false,
+      'zlib': false,
     },
     format: 'amd', // to not allow system.js to choose 'cjs'
     repository: {
@@ -1242,6 +1248,8 @@ gulp.task('dist-pre',
 
   return merge([
     gulp.src('external/streams/streams-lib.js', { base: '.', })
+      .pipe(gulp.dest('build/dist/')),
+    gulp.src('external/url/url-lib.js', { base: '.', })
       .pipe(gulp.dest('build/dist/')),
     packageJsonSrc.pipe(gulp.dest(DIST_DIR)),
     bowerJsonSrc.pipe(gulp.dest(DIST_DIR)),

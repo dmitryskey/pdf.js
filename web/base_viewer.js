@@ -183,6 +183,12 @@ class BaseViewer {
         this.spreadMode = options.spreadMode;
       }
     }
+
+    // Defer the dispatching of this event, to give other viewer components
+    // time to initialize *and* register 'baseviewerinit' event listeners.
+    Promise.resolve().then(() => {
+      this.eventBus.dispatch('baseviewerinit', { source: this, });
+    });
   }
 
   get pagesCount() {
@@ -493,7 +499,7 @@ class BaseViewer {
     }
     if (!labels) {
       this._pageLabels = null;
-    } else if (!(labels instanceof Array &&
+    } else if (!(Array.isArray(labels) &&
                  this.pdfDocument.numPages === labels.length)) {
       this._pageLabels = null;
       console.error(`${this._name}.setPageLabels: Invalid page labels.`);

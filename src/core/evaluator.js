@@ -16,8 +16,8 @@
 import {
   AbortException, assert, CMapCompressionType, createPromiseCapability,
   FONT_IDENTITY_MATRIX, FormatError, getLookupTableFactory, IDENTITY_MATRIX,
-  info, isNum, isString, NativeImageDecoding, OPS, TextRenderingMode,
-  UNSUPPORTED_FEATURES, Util, warn
+  info, isNum, isString, NativeImageDecoding, OPS, stringToPDFString,
+  TextRenderingMode, UNSUPPORTED_FEATURES, Util, warn
 } from '../shared/util';
 import { CMapFactory, IdentityCMap } from './cmap';
 import { DecodeStream, Stream } from './stream';
@@ -132,16 +132,15 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
     this.pdfFunctionFactory = pdfFunctionFactory;
 
     this.fetchBuiltInCMap = (name) => {
-      var cachedCMap = this.builtInCMapCache[name];
-      if (cachedCMap) {
-        return Promise.resolve(cachedCMap);
+      if (this.builtInCMapCache.has(name)) {
+        return Promise.resolve(this.builtInCMapCache.get(name));
       }
       return this.handler.sendWithPromise('FetchBuiltInCMap', {
         name,
       }).then((data) => {
         if (data.compressionType !== CMapCompressionType.NONE) {
           // Given the size of uncompressed CMaps, only cache compressed ones.
-          this.builtInCMapCache[name] = data;
+          this.builtInCMapCache.set(name, data);
         }
         return data;
       });
@@ -1872,8 +1871,8 @@ var PartialEvaluator = (function PartialEvaluatorClosure() {
         var cidSystemInfo = dict.get('CIDSystemInfo');
         if (isDict(cidSystemInfo)) {
           properties.cidSystemInfo = {
-            registry: cidSystemInfo.get('Registry'),
-            ordering: cidSystemInfo.get('Ordering'),
+            registry: stringToPDFString(cidSystemInfo.get('Registry')),
+            ordering: stringToPDFString(cidSystemInfo.get('Ordering')),
             supplement: cidSystemInfo.get('Supplement'),
           };
         }

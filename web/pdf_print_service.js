@@ -14,8 +14,8 @@
  */
 
 import { CSS_UNITS, NullL10n } from './ui_utils';
+import { getDocument, URL } from 'pdfjs-lib';
 import { PDFPrintServiceFactory, PDFViewerApplication } from './app';
-import getDocument from 'pdfjs-lib';
 
 let activeService = null;
 let overlayManager = null;
