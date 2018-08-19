@@ -1360,7 +1360,7 @@ let PDFViewerApplication = {
     let pagesOverview = this.pdfViewer.getPagesOverview();
     let printContainer = this.appConfig.printContainer;
     let printService = PDFPrintServiceFactory.instance.createPrintService(
-      pagesOverview, printContainer, this.l10n);
+      this.pdfDocument, pagesOverview, printContainer, this.l10n);
     this.printService = printService;
     this.forceRendering();
 
