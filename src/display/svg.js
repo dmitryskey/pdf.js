@@ -777,6 +777,7 @@ SVGGraphics = (function SVGGraphicsClosure() {
         current.x += x * textHScale;
       }
 
+      current.tspan.setAttributeNS(XML_NS, 'xml:space', 'preserve');
       current.tspan.setAttributeNS(null, 'x',
                                    current.xcoords.map(pf).join(' '));
       current.tspan.setAttributeNS(null, 'y', pf(-current.y));

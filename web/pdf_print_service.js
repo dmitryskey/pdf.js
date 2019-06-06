@@ -14,47 +14,22 @@
  */
 
 import { CSS_UNITS, NullL10n } from './ui_utils';
-import { getDocument, URL } from 'pdfjs-lib';
+import { getDocument, SVGGraphics } from 'pdfjs-lib';
 import { PDFPrintServiceFactory, PDFViewerApplication } from './app';
 
 let activeService = null;
 let overlayManager = null;
 
-// Renders the page to the canvas of the given print service, and returns
-// the suggested dimensions of the output page.
-function renderPage(activeServiceOnEntry, pdfDocument, pageNumber, size) {
-  let scratchCanvas = activeService.scratchCanvas;
-
-  // The size of the canvas in pixels for printing.
-  const PRINT_RESOLUTION = 300;
-  const PRINT_UNITS = PRINT_RESOLUTION / 72.0;
-
-  scratchCanvas.width = Math.floor(size.width * PRINT_UNITS);
-  scratchCanvas.height = Math.floor(size.height * PRINT_UNITS);
-
-  // The physical size of the img as specified by the PDF document.
-  let width = Math.floor(size.width * CSS_UNITS) + 'px';
-  let height = Math.floor(size.height * CSS_UNITS) + 'px';
-
-  let ctx = scratchCanvas.getContext('2d');
-  ctx.save();
-  ctx.fillStyle = 'rgb(255, 255, 255)';
-  ctx.fillRect(0, 0, scratchCanvas.width, scratchCanvas.height);
-  ctx.restore();
-
+// Renders the page to the SVG format.
+function renderPage(pdfDocument, pageNumber, size, offset) {
   return pdfDocument.getPage(pageNumber).then((pdfPage) => {
-    let renderContext = {
-      canvasContext: ctx,
-      transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
-      viewport: pdfPage.getViewport(1, size.rotation),
-      intent: 'print',
-    };
-    return pdfPage.render(renderContext).promise;
-  }).then(() => {
-    return {
-      width,
-      height,
-    };
+    let viewport = pdfPage.getViewport(CSS_UNITS, size.rotation);
+    viewport.height -= offset;
+
+    return pdfPage.getOperatorList().then((opList) => {
+      let svgGfx = new SVGGraphics(pdfPage.commonObjs, pdfPage.objs);
+      return svgGfx.getSVG(opList, viewport);
+    });
   });
 }
 
@@ -63,11 +38,7 @@ function PDFPrintService(pdfDocument, pagesOverview, printContainer, l10n) {
   this.pagesOverview = pagesOverview;
   this.printContainer = printContainer;
   this.l10n = l10n || NullL10n;
-  this.disableCreateObjectURL =
-    pdfDocument.loadingParams['disableCreateObjectURL'];
   this.currentPage = -1;
-  // The temporary canvas where renderPage paints one page at a time.
-  this.scratchCanvas = document.createElement('canvas');
 }
 
 PDFPrintService.prototype = {
@@ -77,7 +48,7 @@ PDFPrintService.prototype = {
     let body = document.querySelector('body');
     body.setAttribute('data-pdfjsprinting', true);
 
-    let hasEqualPageSizes = this.pagesOverview.every(function(size) {
+    let hasEqualPageSizes = this.pagesOverview.every((size) => {
       return size.width === this.pagesOverview[0].width &&
              size.height === this.pagesOverview[0].height;
     }, this);
@@ -118,8 +89,6 @@ PDFPrintService.prototype = {
       this.pageStyleSheet.remove();
       this.pageStyleSheet = null;
     }
-    this.scratchCanvas.width = this.scratchCanvas.height = 0;
-    this.scratchCanvas = null;
     activeService = null;
     ensureOverlay().then(() => {
       if (overlayManager.active !== 'printServiceOverlay') {
@@ -132,16 +101,18 @@ PDFPrintService.prototype = {
   renderPages() {
     let pageCount = this.pagesOverview.length;
 
+    renderProgress(0, pageCount + 1, this.l10n);
+
     return new Promise((resolve, reject) => {
       let xhr = new XMLHttpRequest();
       xhr.open('POST', PDFViewerApplication.transformationService);
 
       xhr.setRequestHeader('Content-Type', 'application/json');
 
-      renderProgress(1, pageCount + 1, this.l10n);
-
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
+          renderProgress(1, pageCount + 1, this.l10n);
+
           let parameters = PDFViewerApplication.pdfLoadingTask.src;
 
           delete parameters.url;
@@ -157,11 +128,10 @@ PDFPrintService.prototype = {
             parameters.data[i] = binary_string.charCodeAt(i);
           }
 
-          let loadingTask = getDocument(parameters);
-
-          return loadingTask.promise.then((pdfDocument) => {
+          return getDocument(parameters).promise.then((pdfDocument) => {
             let renderNextPage = () => {
               this.throwIfInactive();
+
               if (++this.currentPage >= pageCount) {
                 renderProgress(pageCount + 1, pageCount + 1, this.l10n);
                 resolve();
@@ -169,13 +139,19 @@ PDFPrintService.prototype = {
               }
 
               let index = this.currentPage;
+
               renderProgress(index + 1, pageCount + 1, this.l10n);
-              renderPage(this, pdfDocument, index + 1,
-                this.pagesOverview[index])
-                .then(this.useRenderedPage.bind(this))
-                .then(() => {
-                  renderNextPage();
-                }, reject);
+
+              // for the last page reduce its height in order to suppress
+              // the blank page
+              renderPage(pdfDocument, index + 1, this.pagesOverview[index],
+                index < pageCount - 1 ? 0 : 10).then((svg) => {
+                this.throwIfInactive();
+
+                this.printContainer.appendChild(svg);
+
+                renderNextPage();
+              });
             };
 
             renderNextPage();
@@ -201,46 +177,34 @@ PDFPrintService.prototype = {
     });
   },
 
-  useRenderedPage(printItem) {
-    this.throwIfInactive();
-    let img = document.createElement('img');
-    img.style.width = printItem.width;
-    img.style.height = printItem.height;
-
-    let scratchCanvas = this.scratchCanvas;
-    if (('toBlob' in scratchCanvas) && !this.disableCreateObjectURL) {
-      scratchCanvas.toBlob(function(blob) {
-        img.src = URL.createObjectURL(blob);
-      });
-    } else {
-      img.src = scratchCanvas.toDataURL();
-    }
-
-    let wrapper = document.createElement('div');
-    wrapper.appendChild(img);
-    this.printContainer.appendChild(wrapper);
-
-    return new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-    });
-  },
-
   performPrint() {
     this.throwIfInactive();
+    let printQuery = window.matchMedia('print');
+
     return new Promise((resolve) => {
-      // Push window.print in the macrotask queue to avoid being affected by
-      // the deprecation of running print() code in a microtask, see
-      // https://github.com/mozilla/pdf.js/issues/7547.
-      setTimeout(() => {
-        if (!this.active) {
+      if (!this.active) {
+        resolve();
+        return;
+      }
+
+      let printListener = () => {
+        setTimeout(() => {
+          printQuery.removeListener(printListener);
           resolve();
-          return;
-        }
-        print.call(window);
-        // Delay promise resolution in case print() was not synchronous.
-        setTimeout(resolve, 20);  // Tidy-up.
-      }, 0);
+        }, 1000);
+      };
+
+      // this is a workaround for the Safari. It needs SVG definitions
+      // to be reloaded in order to show flatten fields.
+      let svgDefs = this.printContainer.getElementsByTagName('svg:defs');
+
+      for (let i = 0; i < svgDefs.length; i++) {
+        let svgDefsHtml = svgDefs[i].innerHTML;
+        svgDefs[i].innerHTML = svgDefsHtml;
+      }
+
+      printQuery.addListener(printListener);
+      print.call(window);
     });
   },
 
@@ -257,7 +221,7 @@ PDFPrintService.prototype = {
 
 let print = window.print;
 
-window.print = function print() {
+window.print = () => {
   if (activeService) {
     console.warn('Ignored window.print() because of a pending print job.');
     return;
@@ -282,7 +246,7 @@ window.print = function print() {
       return; // eslint-disable-line no-unsafe-finally
     }
     let activeServiceOnEntry = activeService;
-    activeService.renderPages().then((val) => {
+    activeService.renderPages().then(() => {
       return activeServiceOnEntry.performPrint();
     }).catch(() => {
       // Ignore any error messages.
@@ -359,7 +323,7 @@ if (hasAttachEvent) {
 if ('onbeforeprint' in window) {
   // Do not propagate before/afterprint events when they are not triggered
   // from within this polyfill. (FF /IE / Chrome 63+).
-  let stopPropagationIfNeeded = function(event) {
+  let stopPropagationIfNeeded = (event) => {
     if (event.detail !== 'custom' && event.stopImmediatePropagation) {
       event.stopImmediatePropagation();
     }
