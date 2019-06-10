@@ -128,7 +128,7 @@ PDFPrintService.prototype = {
             parameters.data[i] = binary_string.charCodeAt(i);
           }
 
-          return getDocument(parameters).promise.then((pdfDocument) => {
+          getDocument(parameters).promise.then((pdfDocument) => {
             let renderNextPage = () => {
               this.throwIfInactive();
 
@@ -311,7 +311,8 @@ window.addEventListener('keydown', (event) => {
   }
 }, true);
 if (hasAttachEvent) {
-  document.attachEvent('onkeydown', (event) => {
+  // eslint-disable-next-line consistent-return
+  document.attachEvent('onkeydown', function(event) {
     event = event || window.event;
     if (event.keyCode === /* P= */ 80 && event.ctrlKey) {
       event.keyCode = 0;

@@ -54,19 +54,26 @@ class PDFNodeStream {
     this.isFsUrl = this.url.protocol === 'file:';
     this.httpHeaders = (this.isHttp && source.httpHeaders) || {};
 
-    this._fullRequest = null;
+    this._fullRequestReader = null;
     this._rangeRequestReaders = [];
   }
 
+  get _progressiveDataLength() {
+    return (this._fullRequestReader ? this._fullRequestReader._loaded : 0);
+  }
+
   getFullReader() {
-    assert(!this._fullRequest);
-    this._fullRequest = this.isFsUrl ?
+    assert(!this._fullRequestReader);
+    this._fullRequestReader = this.isFsUrl ?
       new PDFNodeStreamFsFullReader(this) :
       new PDFNodeStreamFullReader(this);
-    return this._fullRequest;
+    return this._fullRequestReader;
   }
 
   getRangeReader(start, end) {
+    if (end <= this._progressiveDataLength) {
+      return null;
+    }
     let rangeReader = this.isFsUrl ?
       new PDFNodeStreamFsRangeReader(this, start, end) :
       new PDFNodeStreamRangeReader(this, start, end);
@@ -75,8 +82,8 @@ class PDFNodeStream {
   }
 
   cancelAllRequests(reason) {
-    if (this._fullRequest) {
-      this._fullRequest.cancel(reason);
+    if (this._fullRequestReader) {
+      this._fullRequestReader.cancel(reason);
     }
 
     let readers = this._rangeRequestReaders.slice(0);
@@ -131,31 +138,30 @@ class BaseFullReader {
     return this._isStreamingSupported;
   }
 
-  read() {
-    return this._readCapability.promise.then(() => {
-      if (this._done) {
-        return Promise.resolve({ value: undefined, done: true, });
-      }
-      if (this._storedError) {
-        return Promise.reject(this._storedError);
-      }
+  async read() {
+    await this._readCapability.promise;
+    if (this._done) {
+      return { value: undefined, done: true, };
+    }
+    if (this._storedError) {
+      throw this._storedError;
+    }
 
-      let chunk = this._readableStream.read();
-      if (chunk === null) {
-        this._readCapability = createPromiseCapability();
-        return this.read();
-      }
-      this._loaded += chunk.length;
-      if (this.onProgress) {
-        this.onProgress({
-          loaded: this._loaded,
-          total: this._contentLength,
-        });
-      }
-      // Ensure that `read()` method returns ArrayBuffer.
-      let buffer = new Uint8Array(chunk).buffer;
-      return Promise.resolve({ value: buffer, done: false, });
-    });
+    let chunk = this._readableStream.read();
+    if (chunk === null) {
+      this._readCapability = createPromiseCapability();
+      return this.read();
+    }
+    this._loaded += chunk.length;
+    if (this.onProgress) {
+      this.onProgress({
+        loaded: this._loaded,
+        total: this._contentLength,
+      });
+    }
+    // Ensure that `read()` method returns ArrayBuffer.
+    let buffer = new Uint8Array(chunk).buffer;
+    return { value: buffer, done: false, };
   }
 
   cancel(reason) {
@@ -220,28 +226,27 @@ class BaseRangeReader {
     return this._isStreamingSupported;
   }
 
-  read() {
-    return this._readCapability.promise.then(() => {
-      if (this._done) {
-        return Promise.resolve({ value: undefined, done: true, });
-      }
-      if (this._storedError) {
-        return Promise.reject(this._storedError);
-      }
+  async read() {
+    await this._readCapability.promise;
+    if (this._done) {
+      return { value: undefined, done: true, };
+    }
+    if (this._storedError) {
+      throw this._storedError;
+    }
 
-      let chunk = this._readableStream.read();
-      if (chunk === null) {
-        this._readCapability = createPromiseCapability();
-        return this.read();
-      }
-      this._loaded += chunk.length;
-      if (this.onProgress) {
-        this.onProgress({ loaded: this._loaded, });
-      }
-      // Ensure that `read()` method returns ArrayBuffer.
-      let buffer = new Uint8Array(chunk).buffer;
-      return Promise.resolve({ value: buffer, done: false, });
-    });
+    let chunk = this._readableStream.read();
+    if (chunk === null) {
+      this._readCapability = createPromiseCapability();
+      return this.read();
+    }
+    this._loaded += chunk.length;
+    if (this.onProgress) {
+      this.onProgress({ loaded: this._loaded, });
+    }
+    // Ensure that `read()` method returns ArrayBuffer.
+    let buffer = new Uint8Array(chunk).buffer;
+    return { value: buffer, done: false, };
   }
 
   cancel(reason) {
