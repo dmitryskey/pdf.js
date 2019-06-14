@@ -20,6 +20,10 @@ import { PDFPrintServiceFactory, PDFViewerApplication } from './app';
 let activeService = null;
 let overlayManager = null;
 
+function getPageOffset(pageNumber, pageCount) {
+  return pageNumber < pageCount - 1 ? 0 : 10;
+}
+
 // Renders the page to the SVG format.
 function renderPage(pdfDocument, pageNumber, size, offset) {
   return pdfDocument.getPage(pageNumber).then((pdfPage) => {
@@ -56,25 +60,6 @@ PDFPrintService.prototype = {
       console.warn('Not all pages have the same size. The printed ' +
                    'result may be incorrect!');
     }
-
-    // Insert a @page + size rule to make sure that the page size is correctly
-    // set. Note that we assume that all pages have the same size, because
-    // variable-size pages are not supported yet (e.g. in Chrome & Firefox).
-    // TODO(robwu): Use named pages when size calculation bugs get resolved
-    // (e.g. https://crbug.com/355116) AND when support for named pages is
-    // added (http://www.w3.org/TR/css3-page/#using-named-pages).
-    // In browsers where @page + size is not supported (such as Firefox,
-    // https://bugzil.la/851441), the next stylesheet will be ignored and the
-    // user has to select the correct paper size in the UI if wanted.
-    this.pageStyleSheet = document.createElement('style');
-    let pageSize = this.pagesOverview[0];
-    this.pageStyleSheet.textContent =
-      // "size:<width> <height>" is what we need. But also add "A4" because
-      // Firefox incorrectly reports support for the other value.
-      '@supports ((size:A4) and (size:1pt 1pt)) {' +
-      '@page { size: ' + pageSize.width + 'pt ' + pageSize.height + 'pt;}' +
-      '}';
-    body.appendChild(this.pageStyleSheet);
   },
 
   destroy() {
@@ -113,22 +98,18 @@ PDFPrintService.prototype = {
         if (xhr.status >= 200 && xhr.status < 300) {
           renderProgress(1, pageCount + 1, this.l10n);
 
-          let parameters = PDFViewerApplication.pdfLoadingTask.src;
-
-          delete parameters.url;
-
           let respJson = JSON.parse(xhr.response);
 
           PDFViewerApplication.sessionID = respJson.session_id;
 
           let binary_string = atob(respJson.form);
           let len = binary_string.length;
-          parameters.data = new Uint8Array(len);
+          let pdfData = new Uint8Array(len);
           for (let i = 0; i < len; i++) {
-            parameters.data[i] = binary_string.charCodeAt(i);
+            pdfData[i] = binary_string.charCodeAt(i);
           }
 
-          getDocument(parameters).promise.then((pdfDocument) => {
+          getDocument(pdfData).promise.then((pdfDocument) => {
             let renderNextPage = () => {
               this.throwIfInactive();
 
@@ -145,7 +126,7 @@ PDFPrintService.prototype = {
               // for the last page reduce its height in order to suppress
               // the blank page
               renderPage(pdfDocument, index + 1, this.pagesOverview[index],
-                index < pageCount - 1 ? 0 : 10).then((svg) => {
+                getPageOffset(index, pageCount)).then((svg) => {
                 this.throwIfInactive();
 
                 this.printContainer.appendChild(svg);
@@ -156,17 +137,17 @@ PDFPrintService.prototype = {
 
             renderNextPage();
           }, PDFViewerApplication.handleException);
+        } else {
+          reject(new Error({
+            status: xhr.status,
+            statusText: xhr.statusText,
+          }));
         }
-
-        reject(new Error({
-          status: this.status,
-          statusText: xhr.statusText,
-        }));
       };
 
       xhr.onerror = () => {
         reject(new Error({
-          status: this.status,
+          status: xhr.status,
           statusText: xhr.statusText,
         }));
       };
@@ -205,6 +186,8 @@ PDFPrintService.prototype = {
 
       printQuery.addListener(printListener);
       print.call(window);
+      // Delay promise resolution in case print() was not synchronous.
+      setTimeout(resolve, 20);  // Tidy-up.
     });
   },
 
@@ -248,7 +231,7 @@ window.print = () => {
     let activeServiceOnEntry = activeService;
     activeService.renderPages().then(() => {
       return activeServiceOnEntry.performPrint();
-    }).catch(() => {
+    }).catch((e) => {
       // Ignore any error messages.
     }).then(() => {
       // aborts acts on the "active" print request, so we need to check

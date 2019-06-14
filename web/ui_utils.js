@@ -727,6 +727,17 @@ class EventBus {
     eventListeners.splice(i, 1);
   }
 
+  get(eventName) {
+    return this._listeners[eventName];
+  }
+
+  remove(eventName) {
+    if (!this._listeners[eventName]) {
+      return;
+    }
+    delete this._listeners[eventName];
+  }
+
   dispatch(eventName) {
     let eventListeners = this._listeners[eventName];
     if (!eventListeners || eventListeners.length === 0) {

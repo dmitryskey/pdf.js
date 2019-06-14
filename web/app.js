@@ -23,7 +23,7 @@ import {
 } from './ui_utils';
 import { AppOptions, OptionKind } from './app_options';
 import {
-  build, createBlob, createObjectURL, getDocument, getFilenameFromUrl,
+  build, createObjectURL, getDocument, getFilenameFromUrl,
   GlobalWorkerOptions, InvalidPDFException, LinkTarget, loadScript,
   MissingPDFException, OPS, PDFWorker, shadow, UnexpectedResponseException,
   UNSUPPORTED_FEATURES, URL, version
@@ -725,22 +725,7 @@ let PDFViewerApplication = {
   },
 
   download() {
-    function downloadByUrl() {
-      downloadManager.downloadUrl(url, filename);
-    }
-
-    let url = this.baseUrl;
-    // Use this.url instead of this.baseUrl to perform filename detection based
-    // on the reference fragment as ultimate fallback if needed.
-    let filename = this.contentDispositionFilename ||
-      getPDFFileNameFromURL(this.url);
-    let downloadManager = this.downloadManager;
-    downloadManager.onerror = (err) => {
-      // This error won't really be helpful because it's likely the
-      // fallback won't work either (or is already open).
-      this.error(`PDF failed to download: ${err}`);
-    };
-
+    const errorMsg = 'PDF failed to download:';
     let xhr = new XMLHttpRequest();
     xhr.open('POST', this.transformationService);
 
@@ -748,44 +733,34 @@ let PDFViewerApplication = {
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        let parameters = PDFViewerApplication.pdfLoadingTask.src;
-
-        delete parameters.url;
-
         let respJson = JSON.parse(xhr.response);
 
         PDFViewerApplication.sessionID = respJson.session_id;
 
         let binary_string = atob(respJson.form);
         let len = binary_string.length;
-        parameters.data = new Uint8Array(len);
+        let data = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
-          parameters.data[i] = binary_string.charCodeAt(i);
+          data[i] = binary_string.charCodeAt(i);
         }
 
-        let loadingTask = getDocument(parameters);
+        let downloadManager = this.downloadManager;
+        downloadManager.onerror = (err) => {
+          // This error won't really be helpful because it's likely the
+          // fallback won't work either (or is already open).
+          this.error(`${errorMsg} ${err}`);
+        };
 
-        loadingTask.promise.then((pdfDocument) => {
-          // When the PDF document isn't ready,
-          // or the PDF file is still downloading,
-          // simply download using the URL.
-          if (!pdfDocument || !this.downloadComplete) {
-            downloadByUrl();
-            return;
-          }
-
-          pdfDocument.getData().then((data) => {
-            let blob = createBlob(data, 'application/pdf');
-            downloadManager.download(blob, url, filename);
-          }).catch(downloadByUrl);
-          // Error occurred, try downloading with the URL.
-        }, this.handleException);
+        const blob = new Blob([data], { type: 'application/pdf', });
+        downloadManager.download(blob, this.baseUrl,
+          getPDFFileNameFromURL(this.url));
+      } else {
+        this.error(`${errorMsg} ${xhr.statusText}`);
       }
     };
 
     xhr.onerror = () => {
-      // this.error(xhr.status, { xhr.statusText, });
-      throw new Error(xhr.statusText);
+      this.error(`${errorMsg} ${xhr.statusText}`);
     };
 
     this.fieldsData.session_id = this.sessionID;
@@ -1438,8 +1413,8 @@ let PDFViewerApplication = {
     eventBus.on('presentationmodechanged', webViewerPresentationModeChanged);
     eventBus.on('presentationmode', webViewerPresentationMode);
     eventBus.on('openfile', webViewerOpenFile);
-    // eventBus.on('print', webViewerPrint);
-    // eventBus.on('download', webViewerDownload);
+    eventBus.on('print', webViewerPrint);
+    eventBus.on('download', webViewerDownload);
     eventBus.on('firstpage', webViewerFirstPage);
     eventBus.on('lastpage', webViewerLastPage);
     eventBus.on('nextpage', webViewerNextPage);
@@ -1513,8 +1488,8 @@ let PDFViewerApplication = {
     eventBus.off('presentationmodechanged', webViewerPresentationModeChanged);
     eventBus.off('presentationmode', webViewerPresentationMode);
     eventBus.off('openfile', webViewerOpenFile);
-    // eventBus.off('print', webViewerPrint);
-    // eventBus.off('download', webViewerDownload);
+    eventBus.off('print', webViewerPrint);
+    eventBus.off('download', webViewerDownload);
     eventBus.off('firstpage', webViewerFirstPage);
     eventBus.off('lastpage', webViewerLastPage);
     eventBus.off('nextpage', webViewerNextPage);
@@ -2017,14 +1992,14 @@ function webViewerOpenFile() {
     document.getElementById(openFileInputName).click();
   }
 }
-/*
+
 function webViewerPrint() {
   window.print();
 }
 function webViewerDownload() {
   PDFViewerApplication.download();
 }
-*/
+
 function webViewerFirstPage() {
   if (PDFViewerApplication.pdfDocument) {
     PDFViewerApplication.page = 1;
