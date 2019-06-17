@@ -20,15 +20,13 @@ import { PDFPrintServiceFactory, PDFViewerApplication } from './app';
 let activeService = null;
 let overlayManager = null;
 
-function getPageOffset(pageNumber, pageCount) {
-  return pageNumber < pageCount - 1 ? 0 : 10;
-}
-
 // Renders the page to the SVG format.
-function renderPage(pdfDocument, pageNumber, size, offset) {
+function renderPage(pdfDocument, pageNumber, size) {
   return pdfDocument.getPage(pageNumber).then((pdfPage) => {
     let viewport = pdfPage.getViewport(CSS_UNITS, size.rotation);
+    const offset = 20;
     viewport.height -= offset;
+    viewport.y += offset;
 
     return pdfPage.getOperatorList().then((opList) => {
       let svgGfx = new SVGGraphics(pdfPage.commonObjs, pdfPage.objs);
@@ -125,8 +123,8 @@ PDFPrintService.prototype = {
 
               // for the last page reduce its height in order to suppress
               // the blank page
-              renderPage(pdfDocument, index + 1, this.pagesOverview[index],
-                getPageOffset(index, pageCount)).then((svg) => {
+              renderPage(pdfDocument, index + 1, this.pagesOverview[index])
+                .then((svg) => {
                 this.throwIfInactive();
 
                 this.printContainer.appendChild(svg);
@@ -168,26 +166,34 @@ PDFPrintService.prototype = {
         return;
       }
 
-      let printListener = () => {
-        setTimeout(() => {
-          printQuery.removeListener(printListener);
-          resolve();
-        }, 1000);
-      };
+      const isSafari = /Apple/.test(navigator.vendor);
 
-      // this is a workaround for the Safari. It needs SVG definitions
-      // to be reloaded in order to show flatten fields.
-      let svgDefs = this.printContainer.getElementsByTagName('svg:defs');
+      if (isSafari) {
+        // this is a workaround for the Safari. It needs SVG definitions
+        // to be reloaded in order to show flatten fields.
+        let svgDefs = this.printContainer.getElementsByTagName('svg:defs');
 
-      for (let i = 0; i < svgDefs.length; i++) {
-        let svgDefsHtml = svgDefs[i].innerHTML;
-        svgDefs[i].innerHTML = svgDefsHtml;
+        for (let i = 0; i < svgDefs.length; i++) {
+          let svgDefsHtml = svgDefs[i].innerHTML;
+          svgDefs[i].innerHTML = svgDefsHtml;
+        }
+
+        let printListener = () => {
+          setTimeout(() => {
+            printQuery.removeListener(printListener);
+            resolve();
+          }, 1000);
+        };
+
+        printQuery.addListener(printListener);
       }
 
-      printQuery.addListener(printListener);
       print.call(window);
-      // Delay promise resolution in case print() was not synchronous.
-      setTimeout(resolve, 20);  // Tidy-up.
+
+      if (!isSafari) {
+        // Delay promise resolution in case print() was not synchronous.
+        setTimeout(resolve, 20);  // Tidy-up.
+      }
     });
   },
 
