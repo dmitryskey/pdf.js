@@ -456,7 +456,7 @@ class WidgetAnnotationElement extends AnnotationElement {
    * @returns {TextMetrics}
    */
   _measureText(text, font) {
-    let canvas = document.getElementById('page' + this.page.pageNumber);
+    let canvas = document.createElement('canvas');
     if (canvas) {
       let ctx = canvas.getContext('2d');
       ctx.font = font;

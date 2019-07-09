@@ -193,6 +193,7 @@ let PDFViewerApplication = {
         let hashParams = parseQueryString(hash);
         if ('mode' in hashParams && hashParams['mode'] === 'edit') {
           AppOptions.set('renderInteractiveForms', true);
+          AppOptions.set('renderer', 'svg');
         }
       }
     } catch (reason) {
