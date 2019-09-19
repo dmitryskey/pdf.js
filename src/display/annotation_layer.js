@@ -624,14 +624,11 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
         element.style.letterSpacing = `calc(${combWidth}px - 1ch)`;
       }
 
-      if (this.data.fontRefName) {
-        let fonts = this.data.annotationFonts;
-        for (let f = 0; f < fonts.length; f++) {
-          if (fonts[f].length >= 3 &&
-              fonts[f][0] === this.data.fontRefName) {
-            font = fonts[f][2];
-            break;
-          }
+      for (let f of this.data.annotationFonts) {
+        if (f.length >= 3 && this.data.fontRefName &&
+          f[0] === this.data.fontRefName) {
+          font = f[2];
+          break;
         }
       }
     } else {
