@@ -431,19 +431,6 @@ class WidgetAnnotationElement extends AnnotationElement {
     return 'Helvetica, sans-serif';
   }
 
-   /**
-   * Get container scale factor.
-   *
-   * @protected
-   * @memberof WidgetAnnotationElement
-   * @returns {Float}
-   */
-  _getScale() {
-    // let matrix = this.container.style.transform.match(/^matrix\((\d+\.?\d*)\s*,\s*(.+)\)$/);
-    // return matrix ? parseFloat(matrix[1]) : 1;
-    return 1;
-  }
-
   /**
    * Measure annotation's text
    *
