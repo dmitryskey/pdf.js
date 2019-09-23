@@ -199,6 +199,8 @@ PDFPrintService.prototype = {
 
         for (let i = 0; i < svgDefs.length; i++) {
           let svgDefsHtml = svgDefs[i].innerHTML;
+
+          // eslint-disable-next-line no-unsanitized/property
           svgDefs[i].innerHTML = svgDefsHtml;
         }
 

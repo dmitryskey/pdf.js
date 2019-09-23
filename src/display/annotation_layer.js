@@ -439,7 +439,9 @@ class WidgetAnnotationElement extends AnnotationElement {
    * @returns {Float}
    */
   _getScale() {
-    return parseFloat(this.container.getAttribute('scale'));
+    // let matrix = this.container.style.transform.match(/^matrix\((\d+\.?\d*)\s*,\s*(.+)\)$/);
+    // return matrix ? parseFloat(matrix[1]) : 1;
+    return 1;
   }
 
   /**
@@ -472,13 +474,12 @@ class WidgetAnnotationElement extends AnnotationElement {
    */
   _processDuplicates(annotation, callback) {
     this.layer.querySelectorAll('[annotation-name="' +
-      annotation.getAttribute('annotation-name') + '"][annotation-value="' +
-      annotation.getAttribute('annotation-value') + '"]')
-        .forEach((a) => {
-          if (a !== annotation) {
-            callback(annotation, a);
-          }
-        });
+      `${annotation.getAttribute('annotation-name')}"][annotation-value="` +
+      `${annotation.getAttribute('annotation-value')}"]`).forEach((a) => {
+        if (a !== annotation) {
+          callback(annotation, a);
+        }
+      });
   }
 
   /**
@@ -499,17 +500,16 @@ class WidgetAnnotationElement extends AnnotationElement {
     let sizeStep = 0.1;
     for (fSize = 2; fSize < maxHeight * 0.8; fSize += sizeStep) {
       let m = this._measureText(text,
-        (style.fontStyle ? style.fontStyle + ' ' : '') +
-        (style.fontWeight ? style.fontWeight + ' ' : '') +
-        fSize + 'px ' +
-        (this.fontFamily || this._getDefaultFontName()));
+        `${style.fontStyle ? style.fontStyle + ' ' : ''}` +
+        `${style.fontWeight ? style.fontWeight + ' ' : ''}` +
+        `${fSize}px ${this.fontFamily || this._getDefaultFontName()}`);
 
       if (m.width + offset > parseInt(element.offsetWidth)) {
         break;
       }
     }
 
-    return (fSize - sizeStep) + 'px';
+    return `${fSize - sizeStep}px`;
   }
 
   /**
@@ -674,7 +674,7 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
     }
 
     if (this.data.fontSize) {
-      style.fontSize = `${this.data.fontSize * this._getScale()}px`;
+      style.fontSize = `${this.data.fontSize}px`;
     }
 
     if (this.data.fontDirection) {
@@ -688,7 +688,7 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
       style.fontStyle = (font.italic ? 'italic' : 'normal');
 
       // Use a reasonable default font if the font doesn't specify a fallback.
-      let fontFamily = font.loadedName ? '"' + font.loadedName + '", ' : '';
+      let fontFamily = font.loadedName ? `"${font.loadedName}", ` : '';
       let fallbackName = font.fallbackName || this._getDefaultFontName();
       style.fontFamily = fontFamily + fallbackName;
     }
@@ -716,11 +716,6 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
         style.fontSize = self._calculateFontAutoSize(element, element.value);
       };
     }
-
-    // Use a reasonable default font if the font doesn't specify a fallback.
-    const fontFamily = font.loadedName ? `"${font.loadedName}", ` : '';
-    const fallbackName = font.fallbackName || 'Helvetica, sans-serif';
-    style.fontFamily = fontFamily + fallbackName;
   }
 }
 
@@ -816,8 +811,8 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
 
     span.style.lineHeight = this.container.style.height;
 
-    span.style.fontSize = (parseFloat(this.container.style.height) *
-      fontSizeFactor - fontSizePadding) + 'px';
+    span.style.fontSize = `${parseFloat(this.container.style.height) *
+      fontSizeFactor - fontSizePadding}px`;
 
     span.style.color = this.data.fontColor;
     this.container.className +=
@@ -917,9 +912,8 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
 
     span.style.lineHeight = this.container.style.height;
 
-    span.style.fontSize = (parseFloat(this.container.style.height) *
-      fontSizeFactor - fontSizePadding) *
-      this._getScale() + 'px';
+    span.style.fontSize = `${parseFloat(this.container.style.height) *
+      fontSizeFactor - fontSizePadding}px`;
 
     span.style.color = this.data.fontColor;
     this.container.className +=
@@ -968,7 +962,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
   render() {
     this.container.className = 'choiceWidgetAnnotation';
 
-    let i, ii, style;
+    let style;
     let itemName = encodeURIComponent(this.data.fieldName) + '_item';
 
     let self = this;
@@ -1150,7 +1144,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       let spanElement = document.createElement('span');
 
-      spanElement.style.fontSize = this._getScale() * 10 + 'px';
+      spanElement.style.fontSize = '10px';
 
       spanElement.onclick = () => {
         if (!comboElement.disabled) {
@@ -1169,8 +1163,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         spanElement.style.fontSize + ' ' +
         self._getDefaultFontName()).width;
 
-      for (i = 0, ii = this.data.options.length; i < ii; i++) {
-        let optionItem = this.data.options[i];
+      for (let optionItem of this.data.options) {
         if (this.data.fieldValue.includes(optionItem.exportValue)) {
           comboElement.value = optionItem.displayValue;
         }
@@ -1179,18 +1172,14 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         aElement.setAttribute('value', optionItem.exportValue);
         aElement.text = optionItem.displayValue;
         aElement.name = itemName;
-        aElement.style.padding = aElementPadding + 'px';
-        if (!style.fontSize) {
-          aElement.style.fontSize = this._getScale() * 9 + 'px';
-        } else {
-          aElement.style.fontSize = style.fontSize;
-        }
+        aElement.style.padding = `${aElementPadding}px`;
+        aElement.style.fontSize = `${style.fontSize ? style.fontSize : 9}px`;
 
         let aElementWidth = self._measureText(aElement.text,
-          (style.fontStyle ? style.fontStyle + ' ' : '') +
-          (style.fontWeight ? style.fontWeight + ' ' : '') +
-          (style.fontSize ? style.fontSize : '9') + 'px ' +
-          (style.fontFamily || self._getDefaultFontName()));
+          `${style.fontStyle ? style.fontStyle + ' ' : ''}
+           ${style.fontWeight ? style.fontWeight + ' ' : ''}
+           ${style.fontSize ? style.fontSize : '9'}px 
+           ${style.fontFamily || self._getDefaultFontName()}`);
 
         if (aElementWidth.width + downArrowWidth +
           aElementPadding * 2 > comboWidth) {
@@ -1212,10 +1201,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         };
 
         aElement.onmouseover = () => {
-          let items = comboContent.getElementsByTagName('a');
-
-          for (let i = 0; i < items.length; i++) {
-            items[i].classList.remove(hoverClass);
+          for (let item of comboContent.getElementsByTagName('a')) {
+            item.classList.remove(hoverClass);
           }
 
           aElement.classList.add(hoverClass);
@@ -1229,8 +1216,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       }
 
       if (increaseComboWidth) {
-        comboContent.style.width = (comboWidth + downArrowWidth +
-          aElementPadding * 2) + 'px';
+        comboContent.style.width = `${comboWidth + downArrowWidth +
+          aElementPadding * 2}px`;
       }
 
       if (!style.fontSize) {
@@ -1261,20 +1248,20 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         this.data.backgroundColor[1] | 0,
         this.data.backgroundColor[2] | 0);
 
-      styleExpression = 'background-color:' + bgColor + ';';
+      styleExpression = `background-color:${bgColor};`;
     }
 
     styleExpression +=
-      (style.color ? 'color:' + style.color + ';' : '') +
-      (style.fontSize ? 'font-size:' + style.fontSize + ';' : '') +
-      (style.fontWeight ? 'font-weight:' + style.fontWeight + ';' : '') +
-      (style.fontStyle ? 'font-style:' + style.fontStyle + ';' : '') +
-      (style.fontFamily ? 'font-family:' + style.fontFamily + ';' : '');
+      `${style.color ? 'color:' + style.color + ';' : ''}
+       ${style.fontSize ? 'font-size:' + style.fontSize + ';' : ''}
+       ${style.fontWeight ? 'font-weight:' + style.fontWeight + ';' : ''}
+       ${style.fontStyle ? 'font-style:' + style.fontStyle + ';' : ''}
+       ${style.fontFamily ? 'font-family:' + style.fontFamily + ';' : ''}`;
 
     let cssClass = document.createElement('style');
     cssClass.innerText =
-      `.${this.layer.className} .${this.container.className} ` +
-      `[name='${itemName}']{${styleExpression}}`;
+      `.${this.layer.className} .${this.container.className} 
+      [name='${itemName}']{${styleExpression}}`;
 
     document.body.appendChild(cssClass);
 
@@ -1296,20 +1283,18 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
     }
 
     if (this.data.fontSize) {
-      style.fontSize = this.data.fontSize * this._getScale() + 'px';
+      style.fontSize = `${this.data.fontSize}px`;
     }
 
     if (this.data.fontRefName) {
-      let fonts = this.data.annotationFonts;
-      for (let f = 0; f < fonts.length; f++) {
-        if (fonts[f].length >= 3 && fonts[f][0] === this.data.fontRefName) {
-          let font = fonts[f][2];
+      for (let f of this.data.annotationFonts) {
+        if (f.length >= 3 && f[0] === this.data.fontRefName) {
+          let font = f[2];
 
           style.fontWeight = font.black ? font.bold ? '900' :
                                'bold' : font.bold ? 'bold' : 'normal';
           style.fontStyle = font.italic ? 'italic' : 'normal';
-          let fontFamily = font.loadedName ? '"' +
-                             font.loadedName + '", ' : '';
+          let fontFamily = font.loadedName ? `"${font.loadedName}", ` : '';
           let fallbackName = font.fallbackName || this._getDefaultFontName();
           style.fontFamily = fontFamily + fallbackName;
           break;
@@ -2077,42 +2062,8 @@ class AnnotationLayer {
       const element = parameters.div.querySelector(
         `[data-annotation-id="${data.id}"]`);
       if (element) {
-        let scale = parseFloat(element.getAttribute('scale'));
-        let scaleX = parameters.viewport.transform[0];
-        let scaleY = parameters.viewport.transform[3];
-
-        element.style.left =
-          `${(parseFloat(element.style.left) / scale) * scaleX}px`;
-        element.style.top =
-          `${(parseFloat(element.style.top) / scale) * scaleY}px`;
-
-        element.style.width =
-          `${(parseFloat(element.style.width) / scale) * scaleX}px`;
-        element.style.height =
-          `${(parseFloat(element.style.height) / scale) * scaleY}px`;
-
-        element.setAttribute('scale', scaleX);
-
-        element.querySelectorAll('*').forEach((e) => {
-          if (e.style.fontSize) {
-            e.style.fontSize =
-              `${(parseFloat(e.style.fontSize) / scale) * scaleX}px`;
-          }
-
-          if (e.style.width) {
-            e.style.width =
-              `${(parseFloat(e.style.width) / scale) * scaleX}px`;
-          }
-
-          if (e.style.height) {
-            e.style.height =
-            `${(parseFloat(e.style.height) / scale * scaleX)}px`;
-          }
-
-          if (e.style.lineHeight) {
-            e.style.lineHeight = element.style.height;
-          }
-        });
+        element.style.transform =
+          `matrix(${parameters.viewport.transform.join(',')})`;
       }
     }
 
