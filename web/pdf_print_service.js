@@ -322,7 +322,6 @@ window.addEventListener('keydown', (event) => {
     } else {
       event.stopPropagation();
     }
-    return;
   }
 }, true);
 if (hasAttachEvent) {
