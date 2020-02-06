@@ -119,46 +119,60 @@ PDFPrintService.prototype = {
         if (xhr.status >= 200 && xhr.status < 300) {
           renderProgress(1, pageCount + 1, this.l10n);
 
-          let respJson = JSON.parse(xhr.response);
+          try {
+            const respJson = JSON.parse(xhr.response);
 
-          PDFViewerApplication.sessionID = respJson.session_id;
+            PDFViewerApplication.sessionID = respJson.session_id;
 
-          let binary_string = atob(respJson.form);
-          let len = binary_string.length;
-          let pdfData = new Uint8Array(len);
-          for (let i = 0; i < len; i++) {
-            pdfData[i] = binary_string.charCodeAt(i);
-          }
+            if (!respJson.form) {
+              reject(new Error({
+                status: 500,
+                statusText: 'Null PDF document',
+              }));
+            }
 
-          getDocument(pdfData).promise.then((pdfDocument) => {
-            let renderNextPage = () => {
-              this.throwIfInactive();
+            let binary_string = atob(respJson.form);
+            let len = binary_string.length;
+            let pdfData = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              pdfData[i] = binary_string.charCodeAt(i);
+            }
 
-              if (++this.currentPage >= pageCount) {
-                renderProgress(pageCount + 1, pageCount + 1, this.l10n);
-                resolve();
-                return;
-              }
-
-              let index = this.currentPage;
-
-              renderProgress(index + 1, pageCount + 1, this.l10n);
-
-              // for the last page reduce its height in order to suppress
-              // the blank page
-              renderPage(pdfDocument, index + 1, this.pagesOverview[index])
-                .then((svg) => {
+            getDocument(pdfData).promise.then((pdfDocument) => {
+              let renderNextPage = () => {
                 this.throwIfInactive();
 
-                svg.style.zoom = (CSS_UNITS * 100) + '%';
-                this.printContainer.appendChild(svg);
+                if (++this.currentPage >= pageCount) {
+                  renderProgress(pageCount + 1, pageCount + 1, this.l10n);
+                  resolve();
+                  return;
+                }
 
-                renderNextPage();
-              });
-            };
+                let index = this.currentPage;
 
-            renderNextPage();
-          }, PDFViewerApplication.handleException);
+                renderProgress(index + 1, pageCount + 1, this.l10n);
+
+                // for the last page reduce its height in order to suppress
+                // the blank page
+                renderPage(pdfDocument, index + 1, this.pagesOverview[index])
+                  .then((svg) => {
+                  this.throwIfInactive();
+
+                  svg.style.zoom = (CSS_UNITS * 100) + '%';
+                  this.printContainer.appendChild(svg);
+
+                  renderNextPage();
+                });
+              };
+
+              renderNextPage();
+            }, PDFViewerApplication.handleException);
+          } catch (ex) {
+            reject(new Error({
+              status: 500,
+              statusText: ex,
+            }));
+          }
         } else {
           reject(new Error({
             status: xhr.status,
