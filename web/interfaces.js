@@ -165,6 +165,8 @@ class IPDFAnnotationLayerFactory {
   /**
    * @param {HTMLDivElement} pageDiv
    * @param {PDFPage} pdfPage
+   * @param {AnnotationStorage} [annotationStorage] - Storage for annotation
+   *   data in forms.
    * @param {string} [imageResourcesPath] - Path for image resources, mainly
    *   for annotation icons. Include trailing slash.
    * @param {boolean} renderInteractiveForms
@@ -174,6 +176,7 @@ class IPDFAnnotationLayerFactory {
   createAnnotationLayerBuilder(
     pageDiv,
     pdfPage,
+    annotationStorage = null,
     imageResourcesPath = "",
     renderInteractiveForms = false,
     l10n = undefined

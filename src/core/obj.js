@@ -254,6 +254,82 @@ class Catalog {
     return permissions;
   }
 
+  get optionalContentConfig() {
+    let config = null;
+    try {
+      const properties = this.catDict.get("OCProperties");
+      if (!properties) {
+        return shadow(this, "optionalContentConfig", null);
+      }
+      const defaultConfig = properties.get("D");
+      if (!defaultConfig) {
+        return shadow(this, "optionalContentConfig", null);
+      }
+      const groupsData = properties.get("OCGs");
+      if (!Array.isArray(groupsData)) {
+        return shadow(this, "optionalContentConfig", null);
+      }
+      const groups = [];
+      const groupRefs = [];
+      // Ensure all the optional content groups are valid.
+      for (const groupRef of groupsData) {
+        if (!isRef(groupRef)) {
+          continue;
+        }
+        groupRefs.push(groupRef);
+        const group = this.xref.fetchIfRef(groupRef);
+        groups.push({
+          id: groupRef.toString(),
+          name: isString(group.get("Name"))
+            ? stringToPDFString(group.get("Name"))
+            : null,
+          intent: isString(group.get("Intent"))
+            ? stringToPDFString(group.get("Intent"))
+            : null,
+        });
+      }
+      config = this._readOptionalContentConfig(defaultConfig, groupRefs);
+      config.groups = groups;
+    } catch (ex) {
+      if (ex instanceof MissingDataException) {
+        throw ex;
+      }
+      warn(`Unable to read optional content config: ${ex}`);
+    }
+    return shadow(this, "optionalContentConfig", config);
+  }
+
+  _readOptionalContentConfig(config, contentGroupRefs) {
+    function parseOnOff(refs) {
+      const onParsed = [];
+      if (Array.isArray(refs)) {
+        for (const value of refs) {
+          if (!isRef(value)) {
+            continue;
+          }
+          if (contentGroupRefs.includes(value)) {
+            onParsed.push(value.toString());
+          }
+        }
+      }
+      return onParsed;
+    }
+
+    return {
+      name: isString(config.get("Name"))
+        ? stringToPDFString(config.get("Name"))
+        : null,
+      creator: isString(config.get("Creator"))
+        ? stringToPDFString(config.get("Creator"))
+        : null,
+      baseState: isName(config.get("BaseState"))
+        ? config.get("BaseState").name
+        : null,
+      on: parseOnOff(config.get("ON")),
+      off: parseOnOff(config.get("OFF")),
+    };
+  }
+
   get numPages() {
     const obj = this.toplevelPagesDict.get("Count");
     if (!Number.isInteger(obj)) {
@@ -1135,9 +1211,21 @@ var XRef = (function XRefClosure() {
       streamTypes: Object.create(null),
       fontTypes: Object.create(null),
     };
+    this._newRefNum = null;
   }
 
   XRef.prototype = {
+    getNewRef: function XRef_getNewRef() {
+      if (this._newRefNum === null) {
+        this._newRefNum = this.entries.length;
+      }
+      return Ref.get(this._newRefNum++, 0);
+    },
+
+    resetNewRef: function XRef_resetNewRef() {
+      this._newRefNum = null;
+    },
+
     setStartXRef: function XRef_setStartXRef(startXRef) {
       // Store the starting positions of xref tables as we process them
       // so we can recover from missing data errors

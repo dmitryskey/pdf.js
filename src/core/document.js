@@ -228,6 +228,43 @@ class Page {
     return stream;
   }
 
+  save(handler, task, annotationStorage) {
+    const partialEvaluator = new PartialEvaluator({
+      xref: this.xref,
+      handler,
+      pageIndex: this.pageIndex,
+      idFactory: this._localIdFactory,
+      fontCache: this.fontCache,
+      builtInCMapCache: this.builtInCMapCache,
+      globalImageCache: this.globalImageCache,
+      options: this.evaluatorOptions,
+    });
+
+    // Fetch the page's annotations and save the content
+    // in case of interactive form fields.
+    return this._parsedAnnotations.then(function (annotations) {
+      const newRefsPromises = [];
+      for (const annotation of annotations) {
+        if (!isAnnotationRenderable(annotation, "print")) {
+          continue;
+        }
+        newRefsPromises.push(
+          annotation
+            .save(partialEvaluator, task, annotationStorage)
+            .catch(function (reason) {
+              warn(
+                "save - ignoring annotation data during " +
+                  `"${task.name}" task: "${reason}".`
+              );
+              return null;
+            })
+        );
+      }
+
+      return Promise.all(newRefsPromises);
+    });
+  }
+
   loadResources(keys) {
     if (!this.resourcesPromise) {
       // TODO: add async `_getInheritableProperty` and remove this.
@@ -246,6 +283,7 @@ class Page {
     annotationTask,
     intent,
     renderInteractiveForms,
+    annotationStorage,
   }) {
     const contentStreamPromise = this.pdfManager.ensure(
       this,
@@ -310,7 +348,12 @@ class Page {
           if (isAnnotationRenderable(annotation, intent)) {
             opListPromises.push(
               annotation
-                .getOperatorList(partialEvaluator, task, renderInteractiveForms)
+                .getOperatorList(
+                  partialEvaluator,
+                  task,
+                  renderInteractiveForms,
+                  annotationStorage
+                )
                 .catch(function (reason) {
                   warn(
                     "getOperatorList - ignoring annotation data during " +

@@ -30,6 +30,7 @@ import {
   Util,
   warn,
 } from "../shared/util.js";
+import { AnnotationStorage } from "./annotation_storage.js";
 
 /**
  * @typedef {Object} AnnotationElementParameters
@@ -39,6 +40,7 @@ import {
  * @property {PageViewport} viewport
  * @property {IPDFLinkService} linkService
  * @property {DownloadManager} downloadManager
+ * @property {AnnotationStorage} [annotationStorage]
  * @property {string} [imageResourcesPath] - Path for image resources, mainly
  *   for annotation icons. Include trailing slash.
  * @property {boolean} renderInteractiveForms
@@ -141,6 +143,7 @@ class AnnotationElement {
     this.imageResourcesPath = parameters.imageResourcesPath;
     this.renderInteractiveForms = parameters.renderInteractiveForms;
     this.svgFactory = parameters.svgFactory;
+    this.annotationStorage = parameters.annotationStorage;
 
     if (isRenderable) {
       this.container = this._createContainer(ignoreBorder);
@@ -591,6 +594,8 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
    */
   render() {
     const TEXT_ALIGNMENT = ["left", "center", "right"];
+    const storage = this.annotationStorage;
+    const id = this.data.id;
 
     this.container.className = "textWidgetAnnotation";
 
@@ -604,19 +609,24 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
       // NOTE: We cannot set the values using `element.value` below, since it
       //       prevents the AnnotationLayer rasterizer in `test/driver.js`
       //       from parsing the elements correctly for the reference tests.
+      const textContent = storage.getOrCreateValue(id, this.data.fieldValue);
+
       if (this.data.multiLine) {
         element = document.createElement("textarea");
-        element.textContent = this.data.fieldValue;
+        element.textContent = textContent;
       } else {
         element = document.createElement("input");
         element.type = "text";
-        element.setAttribute("value", this.data.fieldValue);
+        element.setAttribute("value", textContent);
       }
 
       element.setAttribute(
         "annotation-name",
         encodeURIComponent(this.data.fieldName)
       );
+      element.addEventListener("input", function (event) {
+        storage.setValue(id, event.target.value);
+      });
 
       element.disabled = this.data.readOnly;
       element.name = this.data.fieldName;
@@ -763,33 +773,45 @@ class CheckboxWidgetAnnotationElement extends WidgetAnnotationElement {
    * @returns {HTMLSectionElement}
    */
   render() {
+    const storage = this.annotationStorage;
+    const data = this.data;
+    const id = data.id;
+    const value = storage.getOrCreateValue(
+      id,
+      data.fieldValue && data.fieldValue !== "Off"
+    );
+
     this.container.className = "buttonWidgetAnnotation checkBox ";
 
-    if (!this.data.readOnly) {
-      this.container.title = this.data.alternativeText;
+    if (!data.readOnly) {
+      this.container.title = data.alternativeText;
     }
 
     const element = document.createElement("input");
-    element.setAttribute(
-      "annotation-name",
-      encodeURIComponent(this.data.fieldName)
-    );
+    element.setAttribute("annotation-name", encodeURIComponent(data.fieldName));
     element.setAttribute(
       "annotation-value",
-      this.data.buttonValue ? encodeURIComponent(this.data.buttonValue) : ""
+      data.buttonValue ? encodeURIComponent(data.buttonValue) : ""
     );
-    element.disabled = this.data.readOnly;
+    element.disabled = data.readOnly;
     element.type = "checkbox";
-    element.checked = this.data.fieldValue && this.data.fieldValue !== "Off";
-    element.checkBoxType = this.data.checkBoxType;
+    element.name = data.fieldName;
+    if (value) {
+      element.setAttribute("checked", true);
+    }
+    element.checkBoxType = data.checkBoxType;
 
-    if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+    if (data.borderStyle.style === AnnotationBorderStyleType.INSET) {
       element.className = "inset";
     }
 
-    if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+    if (data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
       element.className = "beveled";
     }
+
+    element.addEventListener("change", function (event) {
+      storage.setValue(id, event.target.checked);
+    });
 
     this.container.appendChild(element);
 
@@ -887,39 +909,59 @@ class RadioButtonWidgetAnnotationElement extends WidgetAnnotationElement {
    */
   render() {
     this.container.className = "buttonWidgetAnnotation radioButton ";
+    const storage = this.annotationStorage;
+    const data = this.data;
+    const id = data.id;
+    const value = storage.getOrCreateValue(
+      id,
+      data.fieldValue === data.buttonValue
+    );
 
-    if (!this.data.readOnly) {
-      this.container.title = this.data.alternativeText;
+    if (!data.readOnly) {
+      this.container.title = data.alternativeText;
     }
 
     const element = document.createElement("input");
+    element.disabled = data.readOnly;
     element.name = encodeURIComponent(this.data.fieldName);
     element.setAttribute(
       "annotation-name",
-      encodeURIComponent(
-        this.data.fieldName + "_" + (this.data.buttonValue || "")
-      )
+      encodeURIComponent(`${data.fieldName}_${data.buttonValue || ""}`)
     );
-    element.disabled = this.data.readOnly;
+    element.disabled = data.readOnly;
     element.type = "radio";
-    if (this.data.fieldValue === this.data.buttonValue) {
+    element.name = data.fieldName;
+    if (value) {
       element.setAttribute("checked", true);
     }
 
-    element.radioButtonType = this.data.radioButtonType;
+    element.radioButtonType = data.radioButtonType;
 
-    if (this.data.radioButtonType === AnnotationCheckboxType.CIRCLE) {
+    if (data.radioButtonType === AnnotationCheckboxType.CIRCLE) {
       element.style.width = this.container.style.width = this.container.style.height;
       this.container.borderRadius = "50%";
     }
 
-    if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
+    if (data.borderStyle.style === AnnotationBorderStyleType.INSET) {
       element.className = "inset";
     }
 
-    if (this.data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
+    if (data.borderStyle.style === AnnotationBorderStyleType.BEVELED) {
       element.className = "beveled";
     }
+
+    element.addEventListener("change", function (event) {
+      const name = event.target.name;
+      for (const radio of document.getElementsByName(name)) {
+        if (radio !== event.target) {
+          storage.setValue(
+            radio.parentNode.getAttribute("data-annotation-id"),
+            false
+          );
+        }
+      }
+      storage.setValue(id, event.target.checked);
+    });
 
     this.container.appendChild(element);
 
@@ -1025,6 +1067,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
    */
   render() {
     this.container.className = "choiceWidgetAnnotation";
+    const storage = this.annotationStorage;
+    const id = this.data.id;
 
     let i, ii, style;
     const itemName = encodeURIComponent(this.data.fieldName) + "_item";
@@ -1066,6 +1110,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         optionElement.value = option.exportValue;
         if (this.data.fieldValue.includes(option.displayValue)) {
           optionElement.setAttribute("selected", true);
+          storage.setValue(id, option.displayValue);
         }
         selectElement.appendChild(optionElement);
       }
@@ -1082,6 +1127,12 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           }
         });
       };
+
+      selectElement.addEventListener("input", function (event) {
+        const options = event.target.options;
+        const value = options[options.selectedIndex].text;
+        storage.setValue(id, value);
+      });
 
       this.container.appendChild(selectElement);
     } else {
@@ -2219,6 +2270,8 @@ class AnnotationLayer {
         imageResourcesPath: parameters.imageResourcesPath || "",
         renderInteractiveForms: parameters.renderInteractiveForms || false,
         svgFactory: new DOMSVGFactory(),
+        annotationStorage:
+          parameters.annotationStorage || new AnnotationStorage(),
       });
       if (element.isRenderable) {
         parameters.div.appendChild(element.render());

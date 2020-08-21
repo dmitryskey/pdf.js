@@ -26,7 +26,7 @@ import {
   MAX_SCALE,
   MIN_SCALE,
   noContextMenuHandler,
-  normalizeWheelEventDelta,
+  normalizeWheelEventDirection,
   parseQueryString,
   PresentationModeState,
   ProgressBar,
@@ -72,6 +72,7 @@ import { PDFThumbnailViewer } from "./pdf_thumbnail_viewer.js";
 import { PDFViewer } from "./pdf_viewer.js";
 import { SecondaryToolbar } from "./secondary_toolbar.js";
 import { Toolbar } from "./toolbar.js";
+import { viewerCompatibilityParams } from "./viewer_compatibility.js";
 import { ViewHistory } from "./view_history.js";
 
 const DEFAULT_SCALE_DELTA = 1.1;
@@ -235,6 +236,8 @@ const PDFViewerApplication = {
   _boundEvents: {},
   contentDispositionFilename: null,
   triggerDelayedFallback: null,
+  _saveInProgress: false,
+  _wheelUnusedTicks: 0,
 
   // Called once when the document is loaded.
   async initialize(appConfig) {
@@ -299,11 +302,7 @@ const PDFViewerApplication = {
    * @private
    */
   async _parseHashParameters() {
-    if (
-      typeof PDFJSDev !== "undefined" &&
-      PDFJSDev.test("PRODUCTION") &&
-      !AppOptions.get("pdfBugEnabled")
-    ) {
+    if (!AppOptions.get("pdfBugEnabled")) {
       return undefined;
     }
     const hash = document.location.hash.substring(1);
@@ -412,9 +411,7 @@ const PDFViewerApplication = {
     });
     this.pdfLinkService = pdfLinkService;
 
-    const downloadManager = this.externalServices.createDownloadManager({
-      disableCreateObjectURL: AppOptions.get("disableCreateObjectURL"),
-    });
+    const downloadManager = this.externalServices.createDownloadManager();
     this.downloadManager = downloadManager;
 
     const findController = new PDFFindController({
@@ -735,6 +732,7 @@ const PDFViewerApplication = {
     this.baseUrl = "";
     this.contentDispositionFilename = null;
     this.triggerDelayedFallback = null;
+    this._saveInProgress = false;
 
     this.pdfSidebar.reset();
     this.pdfOutlineViewer.reset();
@@ -907,6 +905,45 @@ const PDFViewerApplication = {
         downloadManager.download(blob, url, filename);
       })
       .catch(downloadByUrl); // Error occurred, try downloading with the URL.
+  },
+
+  save() {
+    if (this._saveInProgress) {
+      return;
+    }
+
+    const url = this.baseUrl;
+    // Use this.url instead of this.baseUrl to perform filename detection based
+    // on the reference fragment as ultimate fallback if needed.
+    const filename =
+      this.contentDispositionFilename || getPDFFileNameFromURL(this.url);
+    const downloadManager = this.downloadManager;
+    downloadManager.onerror = err => {
+      // This error won't really be helpful because it's likely the
+      // fallback won't work either (or is already open).
+      this.error(`PDF failed to be saved: ${err}`);
+    };
+
+    // When the PDF document isn't ready, or the PDF file is still downloading,
+    // simply download using the URL.
+    if (!this.pdfDocument || !this.downloadComplete) {
+      this.download();
+      return;
+    }
+
+    this._saveInProgress = true;
+    this.pdfDocument
+      .saveDocument(this.pdfDocument.annotationStorage)
+      .then(data => {
+        const blob = new Blob([data], { type: "application/pdf" });
+        downloadManager.download(blob, url, filename);
+      })
+      .catch(() => {
+        this.download();
+      })
+      .finally(() => {
+        this._saveInProgress = false;
+      });
   },
 
   /**
@@ -1381,8 +1418,14 @@ const PDFViewerApplication = {
       this.setTitle(contentDispositionFilename);
     }
 
-    if (info.IsAcroFormPresent) {
-      console.warn("Warning: AcroForm/XFA is not supported");
+    if (info.IsXFAPresent) {
+      console.warn("Warning: XFA is not supported");
+      this._delayedFallback(UNSUPPORTED_FEATURES.forms);
+    } else if (
+      info.IsAcroFormPresent &&
+      !this.pdfViewer.renderInteractiveForms
+    ) {
+      console.warn("Warning: AcroForm support is not enabled");
       this._delayedFallback(UNSUPPORTED_FEATURES.forms);
     }
 
@@ -1613,10 +1656,13 @@ const PDFViewerApplication = {
 
     const pagesOverview = this.pdfViewer.getPagesOverview();
     const printContainer = this.appConfig.printContainer;
+    const printResolution = AppOptions.get("printResolution");
+
     const printService = PDFPrintServiceFactory.instance.createPrintService(
       this.pdfDocument,
       pagesOverview,
       printContainer,
+      printResolution,
       this.l10n
     );
     this.printService = printService;
@@ -1723,6 +1769,9 @@ const PDFViewerApplication = {
 
     window.addEventListener("visibilitychange", webViewerVisibilityChange);
     window.addEventListener("wheel", webViewerWheel, { passive: false });
+    window.addEventListener("touchstart", webViewerTouchStart, {
+      passive: false,
+    });
     window.addEventListener("click", webViewerClick);
     window.addEventListener("keydown", webViewerKeyDown);
     window.addEventListener("keyup", webViewerKeyUp);
@@ -1785,6 +1834,9 @@ const PDFViewerApplication = {
 
     window.removeEventListener("visibilitychange", webViewerVisibilityChange);
     window.removeEventListener("wheel", webViewerWheel, { passive: false });
+    window.removeEventListener("touchstart", webViewerTouchStart, {
+      passive: false,
+    });
     window.removeEventListener("click", webViewerClick);
     window.removeEventListener("keydown", webViewerKeyDown);
     window.removeEventListener("keyup", webViewerKeyUp);
@@ -1797,6 +1849,22 @@ const PDFViewerApplication = {
     _boundEvents.windowHashChange = null;
     _boundEvents.windowBeforePrint = null;
     _boundEvents.windowAfterPrint = null;
+  },
+
+  accumulateWheelTicks(ticks) {
+    // If the scroll direction changed, reset the accumulated wheel ticks.
+    if (
+      (this._wheelUnusedTicks > 0 && ticks < 0) ||
+      (this._wheelUnusedTicks < 0 && ticks > 0)
+    ) {
+      this._wheelUnusedTicks = 0;
+    }
+    this._wheelUnusedTicks += ticks;
+    const wholeTicks =
+      Math.sign(this._wheelUnusedTicks) *
+      Math.floor(Math.abs(this._wheelUnusedTicks));
+    this._wheelUnusedTicks -= wholeTicks;
+    return wholeTicks;
   },
 };
 
@@ -1931,11 +1999,7 @@ function webViewerInitialized() {
     appConfig.secondaryToolbar.openFileButton.setAttribute("hidden", "true");
   }
 
-  if (
-    (typeof PDFJSDev === "undefined" ||
-      PDFJSDev.test("MOZCENTRAL || GENERIC")) &&
-    !PDFViewerApplication.supportsDocumentFonts
-  ) {
+  if (!PDFViewerApplication.supportsDocumentFonts) {
     AppOptions.set("disableFontFace", true);
     PDFViewerApplication.l10n
       .get(
@@ -2230,7 +2294,7 @@ if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
     }
     const file = evt.fileInput.files[0];
 
-    if (!AppOptions.get("disableCreateObjectURL")) {
+    if (!viewerCompatibilityParams.disableCreateObjectURL) {
       let url = URL.createObjectURL(file);
       if (file.name) {
         url = { url, originalUrl: file.name };
@@ -2271,7 +2335,14 @@ function webViewerPrint() {
   window.print();
 }
 function webViewerDownload() {
-  PDFViewerApplication.download();
+  if (
+    PDFViewerApplication.pdfDocument &&
+    PDFViewerApplication.pdfDocument.annotationStorage.size > 0
+  ) {
+    PDFViewerApplication.save();
+  } else {
+    PDFViewerApplication.download();
+  }
 }
 function webViewerFirstPage() {
   if (PDFViewerApplication.pdfDocument) {
@@ -2452,13 +2523,34 @@ function webViewerWheel(evt) {
 
     const previousScale = pdfViewer.currentScale;
 
-    const delta = normalizeWheelEventDelta(evt);
+    const delta = normalizeWheelEventDirection(evt);
+    let ticks = 0;
+    if (
+      evt.deltaMode === WheelEvent.DOM_DELTA_LINE ||
+      evt.deltaMode === WheelEvent.DOM_DELTA_PAGE
+    ) {
+      // For line-based devices, use one tick per event, because different
+      // OSs have different defaults for the number lines. But we generally
+      // want one "clicky" roll of the wheel (which produces one event) to
+      // adjust the zoom by one step.
+      if (Math.abs(delta) >= 1) {
+        ticks = Math.sign(delta);
+      } else {
+        // If we're getting fractional lines (I can't think of a scenario
+        // this might actually happen), be safe and use the accumulator.
+        ticks = PDFViewerApplication.accumulateWheelTicks(delta);
+      }
+    } else {
+      // pixel-based devices
+      const PIXELS_PER_LINE_SCALE = 30;
+      ticks = PDFViewerApplication.accumulateWheelTicks(
+        delta / PIXELS_PER_LINE_SCALE
+      );
+    }
 
-    const MOUSE_WHEEL_DELTA_PER_PAGE_SCALE = 3.0;
-    const ticks = delta * MOUSE_WHEEL_DELTA_PER_PAGE_SCALE;
     if (ticks < 0) {
       PDFViewerApplication.zoomOut(-ticks);
-    } else {
+    } else if (ticks > 0) {
       PDFViewerApplication.zoomIn(ticks);
     }
 
@@ -2476,6 +2568,20 @@ function webViewerWheel(evt) {
     }
   } else {
     setZoomDisabledTimeout();
+  }
+}
+
+function webViewerTouchStart(evt) {
+  if (evt.touches.length > 1) {
+    // Disable touch-based zooming, because the entire UI bits gets zoomed and
+    // that doesn't look great. If we do want to have a good touch-based
+    // zooming experience, we need to implement smooth zoom capability (probably
+    // using a CSS transform for faster visual response, followed by async
+    // re-rendering at the final zoom level) and do gesture detection on the
+    // touchmove events to drive it. Or if we want to settle for a less good
+    // experience we can make the touchmove events drive the existing step-zoom
+    // behaviour that the ctrl+mousewheel path takes.
+    evt.preventDefault();
   }
 }
 

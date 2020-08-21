@@ -22,6 +22,8 @@ import {
   AnnotationReplyType,
   AnnotationType,
   assert,
+  escapeString,
+  getModificationDate,
   isString,
   OPS,
   stringToBytes,
@@ -30,11 +32,12 @@ import {
   warn,
 } from "../shared/util.js";
 import { Catalog, FileSpec, ObjectLoader } from "./obj.js";
-import { Dict, isDict, isName, isRef, isStream } from "./primitives.js";
+import { Dict, isDict, isName, isRef, isStream, Name } from "./primitives.js";
+import { Stream, StringStream } from "./stream.js";
 import { ColorSpace } from "./colorspace.js";
 import { getInheritableProperty } from "./core_utils.js";
 import { OperatorList } from "./operator_list.js";
-import { Stream } from "./stream.js";
+import { writeDict } from "./writer.js";
 
 class AnnotationFactory {
   /**
@@ -52,24 +55,28 @@ class AnnotationFactory {
    *   instance.
    */
   static create(xref, ref, pdfManager, idFactory, evaluator, task) {
-    return pdfManager.ensure(this, "_create", [
-      xref,
-      ref,
-      pdfManager,
-      idFactory,
-      evaluator,
-      task,
-    ]);
+    return pdfManager.ensureDoc("acroForm").then(acroForm => {
+      return pdfManager.ensure(this, "_create", [
+        xref,
+        ref,
+        pdfManager,
+        idFactory,
+        acroForm,
+        evaluator,
+        task,
+      ]);
+    });
   }
 
   /**
    * @private
    */
-  static _create(xref, ref, pdfManager, idFactory, evaluator, task) {
+  static _create(xref, ref, pdfManager, idFactory, acroForm, evaluator, task) {
     const dict = xref.fetchIfRef(ref);
     if (!isDict(dict)) {
       return undefined;
     }
+
     const id = isRef(ref) ? ref.toString() : `annot_${idFactory.createObjId()}`;
 
     // Determine the annotation's subtype.
@@ -79,10 +86,12 @@ class AnnotationFactory {
     // Return the right annotation object based on the subtype and field type.
     const parameters = {
       xref,
+      ref,
       dict,
       subtype,
       id,
       pdfManager,
+      acroForm: acroForm instanceof Dict ? acroForm : Dict.empty,
       evaluator,
       task,
     };
@@ -569,13 +578,14 @@ class Annotation {
     }
   }
 
-  getOperatorList(evaluator, task, renderForms) {
+  getOperatorList(evaluator, task, renderForms, annotationStorage) {
     if (!this.appearance) {
       return Promise.resolve(new OperatorList());
     }
 
+    const appearance = this.appearance;
     const data = this.data;
-    const appearanceDict = this.appearance.dict;
+    const appearanceDict = appearance.dict;
     const resourcesPromise = this.loadResources([
       "ExtGState",
       "ColorSpace",
@@ -593,17 +603,21 @@ class Annotation {
       opList.addOp(OPS.beginAnnotation, [data.rect, transform, matrix]);
       return evaluator
         .getOperatorList({
-          stream: this.appearance,
+          stream: appearance,
           task,
           resources,
           operatorList: opList,
         })
         .then(() => {
           opList.addOp(OPS.endAnnotation, []);
-          this.appearance.reset();
+          appearance.reset();
           return opList;
         });
     });
+  }
+
+  async save(evaluator, task, annotationStorage) {
+    return null;
   }
 }
 
@@ -846,6 +860,7 @@ class WidgetAnnotation extends Annotation {
 
     const dict = params.dict;
     const data = this.data;
+    this.ref = params.ref;
 
     data.annotationType = AnnotationType.WIDGET;
     data.fieldName = this._constructFieldName(dict);
@@ -855,11 +870,16 @@ class WidgetAnnotation extends Annotation {
       getArray: true,
     });
     data.alternativeText = stringToPDFString(dict.get("TU") || "");
-    data.defaultAppearance = getInheritableProperty({ dict, key: "DA" }) || "";
+    data.defaultAppearance =
+      getInheritableProperty({ dict, key: "DA" }) ||
+      params.acroForm.get("DA") ||
+      "";
     const fieldType = getInheritableProperty({ dict, key: "FT" });
     data.fieldType = isName(fieldType) ? fieldType.name : null;
     this.fieldResources =
-      getInheritableProperty({ dict, key: "DR" }) || Dict.empty;
+      getInheritableProperty({ dict, key: "DR" }) ||
+      params.acroForm.get("DR") ||
+      Dict.empty;
 
     data.fieldFlags = getInheritableProperty({ dict, key: "Ff" });
     if (!Number.isInteger(data.fieldFlags) || data.fieldFlags < 0) {
@@ -1000,19 +1020,300 @@ class WidgetAnnotation extends Annotation {
       });
   }
 
-  getOperatorList(evaluator, task, renderForms) {
+  getOperatorList(evaluator, task, renderForms, annotationStorage) {
     // Do not render form elements on the canvas when interactive forms are
     // enabled. The display layer is responsible for rendering them instead.
     if (renderForms) {
       return Promise.resolve(new OperatorList());
     }
-    return super.getOperatorList(evaluator, task, renderForms);
+
+    if (!this._hasText) {
+      return super.getOperatorList(
+        evaluator,
+        task,
+        renderForms,
+        annotationStorage
+      );
+    }
+
+    return this._getAppearance(evaluator, task, annotationStorage).then(
+      content => {
+        if (this.appearance && content === null) {
+          return super.getOperatorList(
+            evaluator,
+            task,
+            renderForms,
+            annotationStorage
+          );
+        }
+
+        const operatorList = new OperatorList();
+
+        // Even if there is an appearance stream, ignore it. This is the
+        // behaviour used by Adobe Reader.
+        if (!this.data.defaultAppearance || content === null) {
+          return operatorList;
+        }
+
+        const matrix = [1, 0, 0, 1, 0, 0];
+        const bbox = [
+          0,
+          0,
+          this.data.rect[2] - this.data.rect[0],
+          this.data.rect[3] - this.data.rect[1],
+        ];
+
+        const transform = getTransformMatrix(this.data.rect, bbox, matrix);
+        operatorList.addOp(OPS.beginAnnotation, [
+          this.data.rect,
+          transform,
+          matrix,
+        ]);
+
+        const stream = new StringStream(content);
+        return evaluator
+          .getOperatorList({
+            stream,
+            task,
+            resources: this.fieldResources,
+            operatorList,
+          })
+          .then(function () {
+            operatorList.addOp(OPS.endAnnotation, []);
+            return operatorList;
+          });
+      }
+    );
+  }
+
+  async save(evaluator, task, annotationStorage) {
+    if (this.data.fieldValue === annotationStorage[this.data.id]) {
+      return null;
+    }
+
+    let appearance = await this._getAppearance(
+      evaluator,
+      task,
+      annotationStorage
+    );
+    if (appearance === null) {
+      return null;
+    }
+
+    const dict = evaluator.xref.fetchIfRef(this.ref);
+    if (!isDict(dict)) {
+      return null;
+    }
+
+    const bbox = [
+      0,
+      0,
+      this.data.rect[2] - this.data.rect[0],
+      this.data.rect[3] - this.data.rect[1],
+    ];
+
+    const newRef = evaluator.xref.getNewRef();
+    const AP = new Dict(evaluator.xref);
+    AP.set("N", newRef);
+
+    const value = annotationStorage[this.data.id];
+    const encrypt = evaluator.xref.encrypt;
+    let originalTransform = null;
+    let newTransform = null;
+    if (encrypt) {
+      originalTransform = encrypt.createCipherTransform(
+        this.ref.num,
+        this.ref.gen
+      );
+      newTransform = encrypt.createCipherTransform(newRef.num, newRef.gen);
+      appearance = newTransform.encryptString(appearance);
+    }
+
+    dict.set("V", value);
+    dict.set("AP", AP);
+    dict.set("M", `D:${getModificationDate()}`);
+
+    const appearanceDict = new Dict(evaluator.xref);
+    appearanceDict.set("Length", appearance.length);
+    appearanceDict.set("Subtype", Name.get("Form"));
+    appearanceDict.set("Resources", this.fieldResources);
+    appearanceDict.set("BBox", bbox);
+
+    const bufferOriginal = [`${this.ref.num} ${this.ref.gen} obj\n`];
+    writeDict(dict, bufferOriginal, originalTransform);
+    bufferOriginal.push("\nendobj\n");
+
+    const bufferNew = [`${newRef.num} ${newRef.gen} obj\n`];
+    writeDict(appearanceDict, bufferNew, newTransform);
+    bufferNew.push(" stream\n");
+    bufferNew.push(appearance);
+    bufferNew.push("\nendstream\nendobj\n");
+
+    return [
+      // data for the original object
+      // V field changed + reference for new AP
+      { ref: this.ref, data: bufferOriginal.join("") },
+      // data for the new AP
+      { ref: newRef, data: bufferNew.join("") },
+    ];
+  }
+
+  async _getAppearance(evaluator, task, annotationStorage) {
+    const isPassword = this.hasFieldFlag(AnnotationFieldFlag.PASSWORD);
+    if (!annotationStorage || isPassword) {
+      return null;
+    }
+    const value = annotationStorage[this.data.id];
+    if (value === "") {
+      return "";
+    }
+
+    const defaultPadding = 2;
+    const hPadding = defaultPadding;
+    const totalHeight = this.data.rect[3] - this.data.rect[1];
+    const totalWidth = this.data.rect[2] - this.data.rect[0];
+
+    const fontInfo = await this._getFontData(evaluator, task);
+    const [font, fontName] = fontInfo;
+    let fontSize = fontInfo[2];
+
+    fontSize = this._computeFontSize(font, fontName, fontSize, totalHeight);
+
+    let descent = font.descent;
+    if (isNaN(descent)) {
+      descent = 0;
+    }
+
+    const vPadding = defaultPadding + Math.abs(descent) * fontSize;
+    const defaultAppearance = this.data.defaultAppearance;
+    const alignment = this.data.textAlignment;
+
+    if (this.data.comb) {
+      return this._getCombAppearance(
+        defaultAppearance,
+        value,
+        totalWidth,
+        hPadding,
+        vPadding
+      );
+    }
+
+    if (this.data.multiLine) {
+      return this._getMultilineAppearance(
+        defaultAppearance,
+        value,
+        font,
+        fontSize,
+        totalWidth,
+        totalHeight,
+        alignment,
+        hPadding,
+        vPadding
+      );
+    }
+
+    if (alignment === 0 || alignment > 2) {
+      // Left alignment: nothing to do
+      return (
+        "/Tx BMC q BT " +
+        defaultAppearance +
+        ` 1 0 0 1 ${hPadding} ${vPadding} Tm (${escapeString(value)}) Tj` +
+        " ET Q EMC"
+      );
+    }
+
+    const renderedText = this._renderText(
+      value,
+      font,
+      fontSize,
+      totalWidth,
+      alignment,
+      hPadding,
+      vPadding
+    );
+    return (
+      "/Tx BMC q BT " +
+      defaultAppearance +
+      ` 1 0 0 1 0 0 Tm ${renderedText}` +
+      " ET Q EMC"
+    );
+  }
+
+  async _getFontData(evaluator, task) {
+    const operatorList = new OperatorList();
+    const initialState = {
+      fontSize: 0,
+      font: null,
+      fontName: null,
+      clone() {
+        return this;
+      },
+    };
+
+    await evaluator.getOperatorList({
+      stream: new StringStream(this.data.defaultAppearance),
+      task,
+      resources: this.fieldResources,
+      operatorList,
+      initialState,
+    });
+
+    return [initialState.font, initialState.fontName, initialState.fontSize];
+  }
+
+  _computeFontSize(font, fontName, fontSize, height) {
+    if (fontSize === null || fontSize === 0) {
+      const em = font.charsToGlyphs("M", true)[0].width / 1000;
+      // According to https://en.wikipedia.org/wiki/Em_(typography)
+      // an average cap height should be 70% of 1em
+      const capHeight = 0.7 * em;
+      // 1.5 * capHeight * fontSize seems to be a good value for lineHeight
+      fontSize = Math.max(1, Math.floor(height / (1.5 * capHeight)));
+
+      let fontRegex = new RegExp(`/${fontName}\\s+[0-9\.]+\\s+Tf`);
+      if (this.data.defaultAppearance.search(fontRegex) === -1) {
+        // The font size is missing
+        fontRegex = new RegExp(`/${fontName}\\s+Tf`);
+      }
+      this.data.defaultAppearance = this.data.defaultAppearance.replace(
+        fontRegex,
+        `/${fontName} ${fontSize} Tf`
+      );
+    }
+    return fontSize;
+  }
+
+  _renderText(text, font, fontSize, totalWidth, alignment, hPadding, vPadding) {
+    // We need to get the width of the text in order to align it correctly
+    const glyphs = font.charsToGlyphs(text);
+    const scale = fontSize / 1000;
+    let width = 0;
+    for (const glyph of glyphs) {
+      width += glyph.width * scale;
+    }
+
+    let shift;
+    if (alignment === 1) {
+      // Center
+      shift = (totalWidth - width) / 2;
+    } else if (alignment === 2) {
+      // Right
+      shift = totalWidth - width - hPadding;
+    } else {
+      shift = hPadding;
+    }
+    shift = shift.toFixed(2);
+    vPadding = vPadding.toFixed(2);
+
+    return `${shift} ${vPadding} Td (${escapeString(text)}) Tj`;
   }
 }
 
 class TextWidgetAnnotation extends WidgetAnnotation {
   constructor(params) {
     super(params);
+
+    this._hasText = true;
 
     const dict = params.dict;
 
@@ -1043,36 +1344,125 @@ class TextWidgetAnnotation extends WidgetAnnotation {
       this.data.maxLen !== null;
   }
 
-  getOperatorList(evaluator, task, renderForms) {
-    if (renderForms || this.appearance) {
-      return super.getOperatorList(evaluator, task, renderForms);
+  _getCombAppearance(defaultAppearance, text, width, hPadding, vPadding) {
+    const combWidth = (width / this.data.maxLen).toFixed(2);
+    const buf = [];
+    for (const character of text) {
+      buf.push(`(${escapeString(character)}) Tj`);
     }
 
-    const operatorList = new OperatorList();
+    const renderedComb = buf.join(` ${combWidth} 0 Td `);
+    return (
+      "/Tx BMC q BT " +
+      defaultAppearance +
+      ` 1 0 0 1 ${hPadding} ${vPadding} Tm ${renderedComb}` +
+      " ET Q EMC"
+    );
+  }
 
-    // Even if there is an appearance stream, ignore it. This is the
-    // behaviour used by Adobe Reader.
-    if (!this.data.defaultAppearance) {
-      return Promise.resolve(operatorList);
+  _getMultilineAppearance(
+    defaultAppearance,
+    text,
+    font,
+    fontSize,
+    width,
+    height,
+    alignment,
+    hPadding,
+    vPadding
+  ) {
+    const lines = text.split(/\r\n|\r|\n/);
+    const buf = [];
+    const totalWidth = width - 2 * hPadding;
+    for (const line of lines) {
+      const chunks = this._splitLine(line, font, fontSize, totalWidth);
+      for (const chunk of chunks) {
+        const padding = buf.length === 0 ? hPadding : 0;
+        buf.push(
+          this._renderText(
+            chunk,
+            font,
+            fontSize,
+            width,
+            alignment,
+            padding,
+            -fontSize // <0 because a line is below the previous one
+          )
+        );
+      }
     }
 
-    const stream = new Stream(stringToBytes(this.data.defaultAppearance));
-    return evaluator
-      .getOperatorList({
-        stream,
-        task,
-        resources: this.fieldResources,
-        operatorList,
-      })
-      .then(function () {
-        return operatorList;
-      });
+    const renderedText = buf.join("\n");
+    return (
+      "/Tx BMC q BT " +
+      defaultAppearance +
+      ` 1 0 0 1 0 ${height} Tm ${renderedText}` +
+      " ET Q EMC"
+    );
+  }
+
+  _splitLine(line, font, fontSize, width) {
+    if (line.length <= 1) {
+      // Nothing to split
+      return [line];
+    }
+
+    const scale = fontSize / 1000;
+    const whitespace = font.charsToGlyphs(" ", true)[0].width * scale;
+    const chunks = [];
+
+    let lastSpacePos = -1,
+      startChunk = 0,
+      currentWidth = 0;
+
+    for (let i = 0, ii = line.length; i < ii; i++) {
+      const character = line.charAt(i);
+      if (character === " ") {
+        if (currentWidth + whitespace > width) {
+          // We can break here
+          chunks.push(line.substring(startChunk, i));
+          startChunk = i;
+          currentWidth = whitespace;
+          lastSpacePos = -1;
+        } else {
+          currentWidth += whitespace;
+          lastSpacePos = i;
+        }
+      } else {
+        const charWidth = font.charsToGlyphs(character, false)[0].width * scale;
+        if (currentWidth + charWidth > width) {
+          // We must break to the last white position (if available)
+          if (lastSpacePos !== -1) {
+            chunks.push(line.substring(startChunk, lastSpacePos + 1));
+            startChunk = i = lastSpacePos + 1;
+            lastSpacePos = -1;
+            currentWidth = 0;
+          } else {
+            // Just break in the middle of the word
+            chunks.push(line.substring(startChunk, i));
+            startChunk = i;
+            currentWidth = charWidth;
+          }
+        } else {
+          currentWidth += charWidth;
+        }
+      }
+    }
+
+    if (startChunk < line.length) {
+      chunks.push(line.substring(startChunk, line.length));
+    }
+
+    return chunks;
   }
 }
 
 class ButtonWidgetAnnotation extends WidgetAnnotation {
   constructor(params) {
     super(params);
+
+    this.checkedAppearance = null;
+    this.uncheckedAppearance = null;
 
     this.data.checkBox =
       !this.hasFieldFlag(AnnotationFieldFlag.RADIO) &&
@@ -1091,6 +1481,145 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
     } else {
       warn("Invalid field flags for button widget annotation");
     }
+  }
+
+  getOperatorList(evaluator, task, renderForms, annotationStorage) {
+    if (annotationStorage) {
+      const value = annotationStorage[this.data.id] || false;
+      let appearance;
+      if (value) {
+        appearance = this.checkedAppearance;
+      } else {
+        appearance = this.uncheckedAppearance;
+      }
+
+      if (appearance) {
+        const savedAppearance = this.appearance;
+        this.appearance = appearance;
+        const operatorList = super.getOperatorList(
+          evaluator,
+          task,
+          renderForms,
+          annotationStorage
+        );
+        this.appearance = savedAppearance;
+        return operatorList;
+      }
+
+      // No appearance
+      return Promise.resolve(new OperatorList());
+    }
+    return super.getOperatorList(
+      evaluator,
+      task,
+      renderForms,
+      annotationStorage
+    );
+  }
+
+  async save(evaluator, task, annotationStorage) {
+    if (this.data.checkBox) {
+      return this._saveCheckbox(evaluator, task, annotationStorage);
+    }
+
+    if (this.data.radioButton) {
+      return this._saveRadioButton(evaluator, task, annotationStorage);
+    }
+
+    return super.save(evaluator, task, annotationStorage);
+  }
+
+  async _saveCheckbox(evaluator, task, annotationStorage) {
+    const defaultValue = this.data.fieldValue && this.data.fieldValue !== "Off";
+    const value = annotationStorage[this.data.id];
+
+    if (defaultValue === value) {
+      return null;
+    }
+
+    const dict = evaluator.xref.fetchIfRef(this.ref);
+    if (!isDict(dict)) {
+      return null;
+    }
+
+    const name = Name.get(value ? this.data.exportValue : "Off");
+    dict.set("V", name);
+    dict.set("AS", name);
+    dict.set("M", `D:${getModificationDate()}`);
+
+    const encrypt = evaluator.xref.encrypt;
+    let originalTransform = null;
+    if (encrypt) {
+      originalTransform = encrypt.createCipherTransform(
+        this.ref.num,
+        this.ref.gen
+      );
+    }
+
+    const buffer = [`${this.ref.num} ${this.ref.gen} obj\n`];
+    writeDict(dict, buffer, originalTransform);
+    buffer.push("\nendobj\n");
+
+    return [{ ref: this.ref, data: buffer.join("") }];
+  }
+
+  async _saveRadioButton(evaluator, task, annotationStorage) {
+    const defaultValue = this.data.fieldValue === this.data.buttonValue;
+    const value = annotationStorage[this.data.id];
+
+    if (defaultValue === value) {
+      return null;
+    }
+
+    const dict = evaluator.xref.fetchIfRef(this.ref);
+    if (!isDict(dict)) {
+      return null;
+    }
+
+    const name = Name.get(value ? this.data.buttonValue : "Off");
+    let parentBuffer = null;
+    const encrypt = evaluator.xref.encrypt;
+
+    if (value) {
+      if (isRef(this.parent)) {
+        const parent = evaluator.xref.fetch(this.parent);
+        let parentTransform = null;
+        if (encrypt) {
+          parentTransform = encrypt.createCipherTransform(
+            this.parent.num,
+            this.parent.gen
+          );
+        }
+        parent.set("V", name);
+        parentBuffer = [`${this.parent.num} ${this.parent.gen} obj\n`];
+        writeDict(parent, parentBuffer, parentTransform);
+        parentBuffer.push("\nendobj\n");
+      } else if (isDict(this.parent)) {
+        this.parent.set("V", name);
+      }
+    }
+
+    dict.set("AS", name);
+    dict.set("M", `D:${getModificationDate()}`);
+
+    let originalTransform = null;
+    if (encrypt) {
+      originalTransform = encrypt.createCipherTransform(
+        this.ref.num,
+        this.ref.gen
+      );
+    }
+
+    const buffer = [`${this.ref.num} ${this.ref.gen} obj\n`];
+    writeDict(dict, buffer, originalTransform);
+    buffer.push("\nendobj\n");
+
+    const newRefs = [{ ref: this.ref, data: buffer.join("") }];
+    if (parentBuffer !== null) {
+      newRefs.push({ ref: this.parent, data: parentBuffer.join("") });
+    }
+
+    return newRefs;
   }
 
   _processCheckBox(params) {
@@ -1124,6 +1653,14 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
 
     this.data.exportValue =
       exportValues[0] === "Off" ? exportValues[1] : exportValues[0];
+
+    const normalAppearance = customAppearance.get("N");
+    if (!isDict(normalAppearance)) {
+      return;
+    }
+
+    this.checkedAppearance = normalAppearance.get(this.data.exportValue);
+    this.uncheckedAppearance = normalAppearance.get("Off") || null;
   }
 
   _processRadioButton(params) {
@@ -1135,6 +1672,7 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
     if (isDict(fieldParent) && fieldParent.has("V")) {
       const fieldParentValue = fieldParent.get("V");
       if (isName(fieldParentValue)) {
+        this.parent = params.dict.getRaw("Parent");
         this.data.fieldValue = fieldParentValue.name;
       }
     }
@@ -1154,17 +1692,19 @@ class ButtonWidgetAnnotation extends WidgetAnnotation {
     if (!isDict(appearanceStates)) {
       return;
     }
-    const normalAppearanceState = appearanceStates.get("N");
-    if (!isDict(normalAppearanceState)) {
+    const normalAppearance = appearanceStates.get("N");
+    if (!isDict(normalAppearance)) {
       return;
     }
-
-    for (const key of normalAppearanceState.getKeys()) {
+    for (const key of normalAppearance.getKeys()) {
       if (key !== "Off") {
         this.data.buttonValue = key;
         break;
       }
     }
+
+    this.checkedAppearance = normalAppearance.get(this.data.buttonValue);
+    this.uncheckedAppearance = normalAppearance.get("Off") || null;
   }
 
   _processPushButton(params) {
@@ -1251,6 +1791,7 @@ class ChoiceWidgetAnnotation extends WidgetAnnotation {
     this.data.combo = this.hasFieldFlag(AnnotationFieldFlag.COMBO);
     this.data.multiSelect = this.hasFieldFlag(AnnotationFieldFlag.MULTISELECT);
     this.data.customText = this.hasFieldFlag(AnnotationFieldFlag.EDIT);
+    this._hasText = true;
   }
 }
 

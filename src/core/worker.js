@@ -21,9 +21,11 @@ import {
   getVerbosityLevel,
   info,
   InvalidPDFException,
+  isString,
   MissingPDFException,
   PasswordException,
   setVerbosityLevel,
+  stringToPDFString,
   UnexpectedResponseException,
   UnknownErrorException,
   UNSUPPORTED_FEATURES,
@@ -32,6 +34,7 @@ import {
 } from "../shared/util.js";
 import { clearPrimitiveCaches, Ref } from "./primitives.js";
 import { LocalPdfManager, NetworkPdfManager } from "./pdf_manager.js";
+import { incrementalUpdate } from "./writer.js";
 import { isNodeJS } from "../shared/is_node.js";
 import { MessageHandler } from "../shared/message_handler.js";
 import { PDFWorkerStream } from "./worker_stream.js";
@@ -371,25 +374,21 @@ class WorkerMessageHandler {
       function pdfManagerReady() {
         ensureNotTerminated();
 
-        loadDocument(false).then(
-          onSuccess,
-          function loadFailure(ex) {
+        loadDocument(false).then(onSuccess, function (reason) {
+          ensureNotTerminated();
+
+          // Try again with recoveryMode == true
+          if (!(reason instanceof XRefParseException)) {
+            onFailure(reason);
+            return;
+          }
+          pdfManager.requestLoadedStream();
+          pdfManager.onLoadedStream().then(function () {
             ensureNotTerminated();
 
-            // Try again with recoveryMode == true
-            if (!(ex instanceof XRefParseException)) {
-              onFailure(ex);
-              return;
-            }
-            pdfManager.requestLoadedStream();
-            pdfManager.onLoadedStream().then(function () {
-              ensureNotTerminated();
-
-              loadDocument(true).then(onSuccess, onFailure);
-            });
-          },
-          onFailure
-        );
+            loadDocument(true).then(onSuccess, onFailure);
+          });
+        });
       }
 
       ensureNotTerminated();
@@ -485,6 +484,10 @@ class WorkerMessageHandler {
       return pdfManager.ensureCatalog("documentOutline");
     });
 
+    handler.on("GetOptionalContentConfig", function (data) {
+      return pdfManager.ensureCatalog("optionalContentConfig");
+    });
+
     handler.on("GetPermissions", function (data) {
       return pdfManager.ensureCatalog("permissions");
     });
@@ -513,6 +516,67 @@ class WorkerMessageHandler {
       });
     });
 
+    handler.on("SaveDocument", function ({
+      numPages,
+      annotationStorage,
+      filename,
+    }) {
+      pdfManager.requestLoadedStream();
+      const promises = [pdfManager.onLoadedStream()];
+      const document = pdfManager.pdfDocument;
+      for (let pageIndex = 0; pageIndex < numPages; pageIndex++) {
+        promises.push(
+          pdfManager.getPage(pageIndex).then(function (page) {
+            const task = new WorkerTask(`Save: page ${pageIndex}`);
+            return page.save(handler, task, annotationStorage);
+          })
+        );
+      }
+
+      return Promise.all(promises).then(([stream, ...refs]) => {
+        let newRefs = [];
+        for (const ref of refs) {
+          newRefs = ref
+            .filter(x => x !== null)
+            .reduce((a, b) => a.concat(b), newRefs);
+        }
+
+        if (newRefs.length === 0) {
+          // No new refs so just return the initial bytes
+          return stream.bytes;
+        }
+
+        const xref = document.xref;
+        let newXrefInfo = Object.create(null);
+        if (xref.trailer) {
+          // Get string info from Info in order to compute fileId
+          const _info = Object.create(null);
+          const xrefInfo = xref.trailer.get("Info") || null;
+          if (xrefInfo) {
+            xrefInfo.forEach((key, value) => {
+              if (isString(key) && isString(value)) {
+                _info[key] = stringToPDFString(value);
+              }
+            });
+          }
+
+          newXrefInfo = {
+            rootRef: xref.trailer.getRaw("Root") || null,
+            encrypt: xref.trailer.getRaw("Encrypt") || null,
+            newRef: xref.getNewRef(),
+            infoRef: xref.trailer.getRaw("Info") || null,
+            info: _info,
+            fileIds: xref.trailer.getRaw("ID") || null,
+            startXRef: document.startXRef,
+            filename,
+          };
+        }
+        xref.resetNewRef();
+
+        return incrementalUpdate(stream.bytes, newXrefInfo, newRefs);
+      });
+    });
+
     handler.on(
       "GetOperatorList",
       function wphSetupRenderPage(data, sink) {
@@ -538,6 +602,7 @@ class WorkerMessageHandler {
               annotationTask,
               intent: data.intent,
               renderInteractiveForms: data.renderInteractiveForms,
+              annotationStorage: data.annotationStorage,
             })
             .then(
               function (operatorListInfo) {

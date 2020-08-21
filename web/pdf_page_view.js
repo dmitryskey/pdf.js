@@ -38,6 +38,8 @@ import { viewerCompatibilityParams } from "./viewer_compatibility.js";
  * @property {number} id - The page unique ID (normally its number).
  * @property {number} scale - The page scale display.
  * @property {PageViewport} defaultViewport - The page viewport.
+ * @property {AnnotationStorage} [annotationStorage] - Storage for annotation
+ *   data in forms. The default value is `null`.
  * @property {PDFRenderingQueue} renderingQueue - The rendering queue object.
  * @property {IPDFTextLayerFactory} textLayerFactory
  * @property {number} [textLayerMode] - Controls if the text layer used for
@@ -81,6 +83,7 @@ class PDFPageView {
     this.rotation = 0;
     this.scale = options.scale || DEFAULT_SCALE;
     this.viewport = defaultViewport;
+    this._annotationStorage = options.annotationStorage || null;
     this.pdfPageRotate = defaultViewport.rotation;
     this.hasRestrictedScaling = false;
     this.textLayerMode = Number.isInteger(options.textLayerMode)
@@ -136,6 +139,24 @@ class PDFPageView {
     this.reset();
     if (this.pdfPage) {
       this.pdfPage.cleanup();
+    }
+  }
+
+  /**
+   * @private
+   */
+  async _renderAnnotationLayer() {
+    let error = null;
+    try {
+      await this.annotationLayer.render(this.viewport, "display");
+    } catch (ex) {
+      error = ex;
+    } finally {
+      this.eventBus.dispatch("annotationlayerrendered", {
+        source: this,
+        pageNumber: this.id,
+        error,
+      });
     }
   }
 
@@ -381,7 +402,7 @@ class PDFPageView {
     }
 
     if (redrawAnnotations && this.annotationLayer) {
-      this.annotationLayer.render(this.viewport, "display");
+      this._renderAnnotationLayer();
     }
   }
 
@@ -533,12 +554,13 @@ class PDFPageView {
         this.annotationLayer = this.annotationLayerFactory.createAnnotationLayerBuilder(
           div,
           pdfPage,
+          this._annotationStorage,
           this.imageResourcesPath,
           this.renderInteractiveForms,
           this.l10n
         );
       }
-      this.annotationLayer.render(this.viewport, "display");
+      this._renderAnnotationLayer();
     }
     div.setAttribute("data-loaded", true);
 

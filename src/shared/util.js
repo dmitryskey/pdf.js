@@ -311,6 +311,7 @@ const UNSUPPORTED_FEATURES = {
   errorFontToUnicode: "errorFontToUnicode",
   errorFontLoadNative: "errorFontLoadNative",
   errorFontGetPath: "errorFontGetPath",
+  errorMarkedContent: "errorMarkedContent",
 };
 
 const PasswordResponses = {
@@ -421,6 +422,9 @@ function shadow(obj, prop, value) {
   return value;
 }
 
+/**
+ * @type {any}
+ */
 const BaseException = (function BaseExceptionClosure() {
   // eslint-disable-next-line no-shadow
   function BaseException(message) {
@@ -473,6 +477,9 @@ class AbortException extends BaseException {}
 
 const NullCharactersRegExp = /\x00/g;
 
+/**
+ * @param {string} str
+ */
 function removeNullCharacters(str) {
   if (typeof str !== "string") {
     warn("The argument for removeNullCharacters must be a string.");
@@ -512,7 +519,7 @@ function stringToBytes(str) {
 
 /**
  * Gets length of the array (Array, Uint8Array, or string) in bytes.
- * @param {Array|Uint8Array|string} arr
+ * @param {Array<any>|Uint8Array|string} arr
  * @returns {number}
  */
 function arrayByteLength(arr) {
@@ -525,7 +532,8 @@ function arrayByteLength(arr) {
 
 /**
  * Combines array items (arrays) into single Uint8Array object.
- * @param {Array} arr - the array of the arrays (Array, Uint8Array, or string).
+ * @param {Array<Array<any>|Uint8Array|string>} arr - the array of the arrays
+ *   (Array, Uint8Array, or string).
  * @returns {Uint8Array}
  */
 function arraysToBytes(arr) {
@@ -794,6 +802,12 @@ function stringToPDFString(str) {
   return strBuf.join("");
 }
 
+function escapeString(str) {
+  // replace "(", ")" and "\" by "\(", "\)" and "\\"
+  // in order to write it in a PDF file.
+  return str.replace(/([\(\)\\])/g, "\\$1");
+}
+
 function stringToUTF8String(str) {
   return decodeURIComponent(escape(str));
 }
@@ -827,11 +841,24 @@ function isArrayEqual(arr1, arr2) {
   });
 }
 
+function getModificationDate(date = new Date(Date.now())) {
+  const buffer = [
+    date.getUTCFullYear().toString(),
+    (date.getUTCMonth() + 1).toString().padStart(2, "0"),
+    (date.getUTCDate() + 1).toString().padStart(2, "0"),
+    date.getUTCHours().toString().padStart(2, "0"),
+    date.getUTCMinutes().toString().padStart(2, "0"),
+    date.getUTCSeconds().toString().padStart(2, "0"),
+  ];
+
+  return buffer.join("");
+}
+
 /**
  * Promise Capability object.
  *
  * @typedef {Object} PromiseCapability
- * @property {Promise} promise - A Promise object.
+ * @property {Promise<any>} promise - A Promise object.
  * @property {boolean} settled - If the Promise has been fulfilled/rejected.
  * @property {function} resolve - Fulfills the Promise.
  * @property {function} reject - Rejects the Promise.
@@ -929,6 +956,8 @@ export {
   bytesToString,
   createPromiseCapability,
   createObjectURL,
+  escapeString,
+  getModificationDate,
   getVerbosityLevel,
   info,
   isArrayBuffer,

@@ -392,6 +392,14 @@ class PartialEvaluator {
     } else {
       bbox = null;
     }
+    let optionalContent = null;
+    if (dict.has("OC")) {
+      optionalContent = await this.parseMarkedContentProps(
+        dict.get("OC"),
+        resources
+      );
+      operatorList.addOp(OPS.beginMarkedContentProps, ["OC", optionalContent]);
+    }
     var group = dict.get("Group");
     if (group) {
       var groupOptions = {
@@ -449,20 +457,17 @@ class PartialEvaluator {
       if (group) {
         operatorList.addOp(OPS.endGroup, [groupOptions]);
       }
+
+      if (optionalContent) {
+        operatorList.addOp(OPS.endMarkedContent, []);
+      }
     });
   }
 
   _sendImgData(objId, imgData, cacheGlobally = false) {
     const transfers = imgData ? [imgData.data.buffer] : null;
 
-    if (this.parsingType3Font) {
-      return this.handler.sendWithPromise(
-        "commonobj",
-        [objId, "FontType3Res", imgData],
-        transfers
-      );
-    }
-    if (cacheGlobally) {
+    if (this.parsingType3Font || cacheGlobally) {
       return this.handler.send(
         "commonobj",
         [objId, "Image", imgData],
@@ -581,7 +586,7 @@ class PartialEvaluator {
     operatorList.addDependency(objId);
     args = [objId, w, h];
 
-    const imgPromise = PDFImage.buildImage({
+    PDFImage.buildImage({
       xref: this.xref,
       res: resources,
       image,
@@ -599,13 +604,6 @@ class PartialEvaluator {
 
         return this._sendImgData(objId, /* imgData = */ null, cacheGlobally);
       });
-
-    if (this.parsingType3Font) {
-      // In the very rare case where a Type3 image resource is being parsed,
-      // wait for the image to be both decoded *and* sent to simplify the
-      // rendering code on the main-thread (see issue10717.pdf).
-      await imgPromise;
-    }
 
     operatorList.addOp(OPS.paintImageXObject, args);
     if (cacheKey) {
@@ -670,6 +668,51 @@ class PartialEvaluator {
     );
   }
 
+  handleTransferFunction(tr) {
+    let transferArray;
+    if (Array.isArray(tr)) {
+      transferArray = tr;
+    } else if (isPDFFunction(tr)) {
+      transferArray = [tr];
+    } else {
+      return null; // Not a valid transfer function entry.
+    }
+
+    const transferMaps = [];
+    let numFns = 0,
+      numEffectfulFns = 0;
+    for (const entry of transferArray) {
+      const transferObj = this.xref.fetchIfRef(entry);
+      numFns++;
+
+      if (isName(transferObj, "Identity")) {
+        transferMaps.push(null);
+        continue;
+      } else if (!isPDFFunction(transferObj)) {
+        return null; // Not a valid transfer function object.
+      }
+
+      const transferFn = this._pdfFunctionFactory.create(transferObj);
+      const transferMap = new Uint8Array(256),
+        tmp = new Float32Array(1);
+      for (let j = 0; j < 256; j++) {
+        tmp[0] = j / 255;
+        transferFn(tmp, 0, tmp, 0);
+        transferMap[j] = (tmp[0] * 255) | 0;
+      }
+      transferMaps.push(transferMap);
+      numEffectfulFns++;
+    }
+
+    if (!(numFns === 1 || numFns === 4)) {
+      return null; // Only 1 or 4 functions are supported, by the specification.
+    }
+    if (numEffectfulFns === 0) {
+      return null; // Only /Identity transfer functions found, which are no-ops.
+    }
+    return transferMaps;
+  }
+
   handleTilingType(
     fn,
     args,
@@ -729,10 +772,12 @@ class PartialEvaluator {
 
   handleSetFont(resources, fontArgs, fontRef, operatorList, task, state) {
     // TODO(mack): Not needed?
-    var fontName;
+    var fontName,
+      fontSize = 0;
     if (fontArgs) {
       fontArgs = fontArgs.slice();
       fontName = fontArgs[0].name;
+      fontSize = fontArgs[1];
     }
 
     return this.loadFont(fontName, fontRef, resources)
@@ -741,8 +786,12 @@ class PartialEvaluator {
           return translated;
         }
         return translated
-          .loadType3Data(this, resources, operatorList, task)
+          .loadType3Data(this, resources, task)
           .then(function () {
+            // Add the dependencies to the parent operatorList so they are
+            // resolved before Type3 operatorLists are executed synchronously.
+            operatorList.addDependencies(translated.type3Dependencies);
+
             return translated;
           })
           .catch(reason => {
@@ -761,6 +810,8 @@ class PartialEvaluator {
       })
       .then(translated => {
         state.font = translated.font;
+        state.fontSize = fontSize;
+        state.fontName = fontName;
         translated.send(this.handler);
         return translated.loadedName;
       });
@@ -840,6 +891,8 @@ class PartialEvaluator {
           gStateObj.push([key, value]);
           break;
         case "Font":
+          isSimpleGState = false;
+
           promise = promise.then(() => {
             return this.handleSetFont(
               resources,
@@ -879,7 +932,10 @@ class PartialEvaluator {
           } else {
             warn("Unsupported SMask type");
           }
-
+          break;
+        case "TR":
+          const transferMaps = this.handleTransferFunction(value);
+          gStateObj.push([key, transferMaps]);
           break;
         // Only generate info log messages for the following since
         // they are unlikely to have a big impact on the rendering.
@@ -890,7 +946,6 @@ class PartialEvaluator {
         case "BG2":
         case "UCR":
         case "UCR2":
-        case "TR":
         case "TR2":
         case "HT":
         case "SM":
@@ -1210,6 +1265,63 @@ class PartialEvaluator {
       throw new FormatError(`Unknown PatternType: ${typeNum}`);
     }
     throw new FormatError(`Unknown PatternName: ${patternName}`);
+  }
+
+  async parseMarkedContentProps(contentProperties, resources) {
+    let optionalContent;
+    if (isName(contentProperties)) {
+      const properties = resources.get("Properties");
+      optionalContent = properties.get(contentProperties.name);
+    } else if (isDict(contentProperties)) {
+      optionalContent = contentProperties;
+    } else {
+      throw new FormatError("Optional content properties malformed.");
+    }
+
+    const optionalContentType = optionalContent.get("Type").name;
+    if (optionalContentType === "OCG") {
+      return {
+        type: optionalContentType,
+        id: optionalContent.objId,
+      };
+    } else if (optionalContentType === "OCMD") {
+      const optionalContentGroups = optionalContent.get("OCGs");
+      if (
+        Array.isArray(optionalContentGroups) ||
+        isDict(optionalContentGroups)
+      ) {
+        const groupIds = [];
+        if (Array.isArray(optionalContentGroups)) {
+          optionalContent.get("OCGs").forEach(ocg => {
+            groupIds.push(ocg.toString());
+          });
+        } else {
+          // Dictionary, just use the obj id.
+          groupIds.push(optionalContentGroups.objId);
+        }
+
+        let expression = null;
+        if (optionalContent.get("VE")) {
+          // TODO support visibility expression.
+          expression = true;
+        }
+
+        return {
+          type: optionalContentType,
+          ids: groupIds,
+          policy: isName(optionalContent.get("P"))
+            ? optionalContent.get("P").name
+            : null,
+          expression,
+        };
+      } else if (isRef(optionalContentGroups)) {
+        return {
+          type: optionalContentType,
+          id: optionalContentGroups.toString(),
+        };
+      }
+    }
+    return null;
   }
 
   getOperatorList({
@@ -1714,9 +1826,6 @@ class PartialEvaluator {
             continue;
           case OPS.markPoint:
           case OPS.markPointProps:
-          case OPS.beginMarkedContent:
-          case OPS.beginMarkedContentProps:
-          case OPS.endMarkedContent:
           case OPS.beginCompat:
           case OPS.endCompat:
             // Ignore operators where the corresponding handlers are known to
@@ -1726,6 +1835,45 @@ class PartialEvaluator {
             // e.g. as done in https://github.com/mozilla/pdf.js/pull/6266,
             // but doing so is meaningless without knowing the semantics.
             continue;
+          case OPS.beginMarkedContentProps:
+            if (!isName(args[0])) {
+              warn(`Expected name for beginMarkedContentProps arg0=${args[0]}`);
+              continue;
+            }
+            if (args[0].name === "OC") {
+              next(
+                self
+                  .parseMarkedContentProps(args[1], resources)
+                  .then(data => {
+                    operatorList.addOp(OPS.beginMarkedContentProps, [
+                      "OC",
+                      data,
+                    ]);
+                  })
+                  .catch(reason => {
+                    if (reason instanceof AbortException) {
+                      return;
+                    }
+                    if (self.options.ignoreErrors) {
+                      self.handler.send("UnsupportedFeature", {
+                        featureId: UNSUPPORTED_FEATURES.errorMarkedContent,
+                      });
+                      warn(
+                        `getOperatorList - ignoring beginMarkedContentProps: "${reason}".`
+                      );
+                      return;
+                    }
+                    throw reason;
+                  })
+              );
+              return;
+            }
+            // Other marked content types aren't supported yet.
+            args = [args[0].name];
+
+            break;
+          case OPS.beginMarkedContent:
+          case OPS.endMarkedContent:
           default:
             // Note: Ignore the operator if it has `Dict` arguments, since
             // those are non-serializable, otherwise postMessage will throw
@@ -3354,6 +3502,7 @@ class TranslatedFont {
     this.dict = dict;
     this._extraProperties = extraProperties;
     this.type3Loaded = null;
+    this.type3Dependencies = font.isType3Font ? new Set() : null;
     this.sent = false;
   }
 
@@ -3386,35 +3535,29 @@ class TranslatedFont {
     PartialEvaluator.buildFontPaths(this.font, glyphs, handler);
   }
 
-  loadType3Data(evaluator, resources, parentOperatorList, task) {
-    if (!this.font.isType3Font) {
-      throw new Error("Must be a Type3 font.");
-    }
-
+  loadType3Data(evaluator, resources, task) {
     if (this.type3Loaded) {
       return this.type3Loaded;
+    }
+    if (!this.font.isType3Font) {
+      throw new Error("Must be a Type3 font.");
     }
     // When parsing Type3 glyphs, always ignore them if there are errors.
     // Compared to the parsing of e.g. an entire page, it doesn't really
     // make sense to only be able to render a Type3 glyph partially.
-    //
-    // Also, ensure that any Type3 image resources (which should be very rare
-    // in practice) are completely decoded on the worker-thread, to simplify
-    // the rendering code on the main-thread (see issue10717.pdf).
     var type3Options = Object.create(evaluator.options);
     type3Options.ignoreErrors = false;
     var type3Evaluator = evaluator.clone(type3Options);
     type3Evaluator.parsingType3Font = true;
 
-    var translatedFont = this.font;
+    const translatedFont = this.font,
+      type3Dependencies = this.type3Dependencies;
     var loadCharProcsPromise = Promise.resolve();
     var charProcs = this.dict.get("CharProcs");
     var fontResources = this.dict.get("Resources") || resources;
-    var charProcKeys = charProcs.getKeys();
     var charProcOperatorList = Object.create(null);
 
-    for (var i = 0, n = charProcKeys.length; i < n; ++i) {
-      const key = charProcKeys[i];
+    for (const key of charProcs.getKeys()) {
       loadCharProcsPromise = loadCharProcsPromise.then(function () {
         var glyphStream = charProcs.get(key);
         var operatorList = new OperatorList();
@@ -3428,9 +3571,9 @@ class TranslatedFont {
           .then(function () {
             charProcOperatorList[key] = operatorList.getIR();
 
-            // Add the dependencies to the parent operator list so they are
-            // resolved before sub operator list is executed synchronously.
-            parentOperatorList.addDependencies(operatorList.dependencies);
+            for (const dependency of operatorList.dependencies) {
+              type3Dependencies.add(dependency);
+            }
           })
           .catch(function (reason) {
             warn(`Type3 font resource "${key}" is not available.`);
