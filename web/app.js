@@ -82,6 +82,17 @@ const DefaultExternalServices = {
   },
 };
 
+const PDFTransformationService = {
+  url: '',
+  session_id: '',
+  fields_data = {
+    file: '',
+    operation: '',
+    session_id: '',
+    entries: []
+  }
+};
+
 let PDFViewerApplication = {
   initialBookmark: document.location.hash.substring(1),
   initialized: false,
@@ -90,8 +101,8 @@ let PDFViewerApplication = {
   pdfDocument: null,
   pdfLoadingTask: null,
   printService: null,
+  /** @type {PDFTransformationService} */
   transformationService: null,
-  fieldsData: null,
   /** @type {PDFViewer} */
   pdfViewer: null,
   /** @type {PDFThumbnailViewer} */

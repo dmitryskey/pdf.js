@@ -111,7 +111,7 @@ PDFPrintService.prototype = {
 
     return new Promise((resolve, reject) => {
       let xhr = new XMLHttpRequest();
-      xhr.open('POST', PDFViewerApplication.transformationService);
+      xhr.open('POST', PDFViewerApplication.transformationService.url);
 
       xhr.setRequestHeader('Content-Type', 'application/json');
 
@@ -122,7 +122,7 @@ PDFPrintService.prototype = {
           try {
             const respJson = JSON.parse(xhr.response);
 
-            PDFViewerApplication.sessionID = respJson.session_id;
+            PDFViewerApplication.transformationService.session_id = respJson.session_id;
 
             if (!respJson.form) {
               reject(new Error({
@@ -188,9 +188,9 @@ PDFPrintService.prototype = {
         }));
       };
 
-      PDFViewerApplication.fieldsData.session_id =
-          PDFViewerApplication.sessionID;
-      xhr.send(JSON.stringify(PDFViewerApplication.fieldsData));
+      PDFViewerApplication.fields_data.session_id =
+          PDFViewerApplication.transformationService.session_id;
+      xhr.send(JSON.stringify(PDFViewerApplication.transformationService.fields_data));
     });
   },
 
