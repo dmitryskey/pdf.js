@@ -82,18 +82,34 @@ const DefaultExternalServices = {
   },
 };
 
+// eslint-disable-next-line no-unused-vars
+const PDFTransformationFieldEntry = {
+  /** @type {string} */
+  name: null,
+  /** @type {string} */
+  value: null,
+  /** @type {string} */
+  operation: null,
+};
+
 const PDFTransformationFields = {
-  file: '',
-  operation: '',
-  session_id: '',
+  /** @type {string} */
+  file: null,
+  /** @type {string} */
+  operation: null,
+  /** @type {string} */
+  session_id: null,
+  /** @type {PDFTransformationFieldEntry[]} */
   entries: [],
-}
+};
 
 const PDFTransformationService = {
-  url: '',
-  session_id: '',
+  /** @type {string} */
+  url: null,
+  /** @type {string} */
+  session_id: null,
   /** @type {PDFTransformationFields} */
-  fields_data,
+  fields_data: PDFTransformationFields,
 };
 
 let PDFViewerApplication = {
@@ -431,6 +447,8 @@ let PDFViewerApplication = {
 
     this.pdfSidebarResizer = new PDFSidebarResizer(appConfig.sidebarResizer,
                                                    eventBus, this.l10n);
+
+    this.transformationService = PDFTransformationService;
   },
 
   run(config) {
