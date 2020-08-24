@@ -122,7 +122,8 @@ PDFPrintService.prototype = {
           try {
             const respJson = JSON.parse(xhr.response);
 
-            PDFViewerApplication.transformationService.session_id = respJson.session_id;
+            PDFViewerApplication.transformationService.session_id =
+              respJson.session_id;
 
             if (!respJson.form) {
               reject(new Error({
@@ -190,7 +191,8 @@ PDFPrintService.prototype = {
 
       PDFViewerApplication.fields_data.session_id =
           PDFViewerApplication.transformationService.session_id;
-      xhr.send(JSON.stringify(PDFViewerApplication.transformationService.fields_data));
+      xhr.send(JSON.stringify(PDFViewerApplication
+        .transformationService.fields_data));
     });
   },
 

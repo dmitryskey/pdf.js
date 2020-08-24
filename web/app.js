@@ -82,15 +82,18 @@ const DefaultExternalServices = {
   },
 };
 
+const PDFTransformationFields = {
+  file: '',
+  operation: '',
+  session_id: '',
+  entries: [],
+}
+
 const PDFTransformationService = {
   url: '',
   session_id: '',
-  fields_data = {
-    file: '',
-    operation: '',
-    session_id: '',
-    entries: []
-  }
+  /** @type {PDFTransformationFields} */
+  fields_data,
 };
 
 let PDFViewerApplication = {
