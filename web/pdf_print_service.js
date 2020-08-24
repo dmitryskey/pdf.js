@@ -189,7 +189,7 @@ PDFPrintService.prototype = {
         }));
       };
 
-      PDFViewerApplication.fields_data.session_id =
+      PDFViewerApplication.transformationService.fields_data.session_id =
           PDFViewerApplication.transformationService.session_id;
       xhr.send(JSON.stringify(PDFViewerApplication
         .transformationService.fields_data));
