@@ -35,7 +35,7 @@ function download(blobUrl, filename) {
   if ("download" in a) {
     a.download = filename;
   }
-  // <a> must be in the document for IE and recent Firefox versions,
+  // <a> must be in the document for recent Firefox versions,
   // otherwise .click() is ignored.
   (document.body || document.documentElement).appendChild(a);
   a.click();
@@ -51,11 +51,6 @@ class DownloadManager {
   }
 
   downloadData(data, filename, contentType) {
-    if (navigator.msSaveBlob) {
-      // IE10 and above
-      navigator.msSaveBlob(new Blob([data], { type: contentType }), filename);
-      return;
-    }
     const blobUrl = createObjectURL(
       data,
       contentType,
@@ -64,15 +59,13 @@ class DownloadManager {
     download(blobUrl, filename);
   }
 
-  download(blob, url, filename) {
-    if (navigator.msSaveBlob) {
-      // IE10 / IE11
-      if (!navigator.msSaveBlob(blob, filename)) {
-        this.downloadUrl(url, filename);
-      }
-      return;
-    }
-
+  /**
+   * @param sourceEventType {string} Used to signal what triggered the download.
+   *   The version of PDF.js integrated with Firefox uses this to to determine
+   *   which dialog to show. "save" triggers "save as" and "download" triggers
+   *   the "open with" dialog.
+   */
+  download(blob, url, filename, sourceEventType = "download") {
     if (viewerCompatibilityParams.disableCreateObjectURL) {
       // URL.createObjectURL is not supported
       this.downloadUrl(url, filename);

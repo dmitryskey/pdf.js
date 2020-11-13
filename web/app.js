@@ -64,6 +64,7 @@ import { PDFDocumentProperties } from "./pdf_document_properties.js";
 import { PDFFindBar } from "./pdf_find_bar.js";
 import { PDFFindController } from "./pdf_find_controller.js";
 import { PDFHistory } from "./pdf_history.js";
+import { PDFLayerViewer } from "./pdf_layer_viewer.js";
 import { PDFLinkService } from "./pdf_link_service.js";
 import { PDFOutlineViewer } from "./pdf_outline_viewer.js";
 import { PDFPresentationMode } from "./pdf_presentation_mode.js";
@@ -209,6 +210,8 @@ const PDFViewerApplication = {
   pdfOutlineViewer: null,
   /** @type {PDFAttachmentViewer} */
   pdfAttachmentViewer: null,
+  /** @type {PDFLayerViewer} */
+  pdfLayerViewer: null,
   /** @type {PDFCursorTools} */
   pdfCursorTools: null,
   /** @type {ViewHistory} */
@@ -445,6 +448,7 @@ const PDFViewerApplication = {
 
     this.pdfThumbnailViewer = new PDFThumbnailViewer({
       container: appConfig.sidebar.thumbnailView,
+      eventBus,
       renderingQueue: pdfRenderingQueue,
       linkService: pdfLinkService,
       l10n: this.l10n,
@@ -507,6 +511,12 @@ const PDFViewerApplication = {
       container: appConfig.sidebar.attachmentsView,
       eventBus,
       downloadManager,
+    });
+
+    this.pdfLayerViewer = new PDFLayerViewer({
+      container: appConfig.sidebar.layersView,
+      eventBus,
+      l10n: this.l10n,
     });
 
     this.pdfSidebar = new PDFSidebar({
@@ -601,15 +611,13 @@ const PDFViewerApplication = {
       support = !!(
         doc.requestFullscreen ||
         doc.mozRequestFullScreen ||
-        doc.webkitRequestFullScreen ||
-        doc.msRequestFullscreen
+        doc.webkitRequestFullScreen
       );
 
       if (
         document.fullscreenEnabled === false ||
         document.mozFullScreenEnabled === false ||
-        document.webkitFullscreenEnabled === false ||
-        document.msFullscreenEnabled === false
+        document.webkitFullscreenEnabled === false
       ) {
         support = false;
       }
@@ -737,6 +745,7 @@ const PDFViewerApplication = {
     this.pdfSidebar.reset();
     this.pdfOutlineViewer.reset();
     this.pdfAttachmentViewer.reset();
+    this.pdfLayerViewer.reset();
 
     if (this.pdfHistory) {
       this.pdfHistory.reset();
@@ -874,7 +883,7 @@ const PDFViewerApplication = {
     );
   },
 
-  download() {
+  download({ sourceEventType = "download" } = {}) {
     function downloadByUrl() {
       downloadManager.downloadUrl(url, filename);
     }
@@ -902,12 +911,12 @@ const PDFViewerApplication = {
       .getData()
       .then(function (data) {
         const blob = new Blob([data], { type: "application/pdf" });
-        downloadManager.download(blob, url, filename);
+        downloadManager.download(blob, url, filename, sourceEventType);
       })
       .catch(downloadByUrl); // Error occurred, try downloading with the URL.
   },
 
-  save() {
+  save({ sourceEventType = "download" } = {}) {
     if (this._saveInProgress) {
       return;
     }
@@ -927,7 +936,7 @@ const PDFViewerApplication = {
     // When the PDF document isn't ready, or the PDF file is still downloading,
     // simply download using the URL.
     if (!this.pdfDocument || !this.downloadComplete) {
-      this.download();
+      this.download({ sourceEventType });
       return;
     }
 
@@ -936,10 +945,10 @@ const PDFViewerApplication = {
       .saveDocument(this.pdfDocument.annotationStorage)
       .then(data => {
         const blob = new Blob([data], { type: "application/pdf" });
-        downloadManager.download(blob, url, filename);
+        downloadManager.download(blob, url, filename, sourceEventType);
       })
       .catch(() => {
-        this.download();
+        this.download({ sourceEventType });
       })
       .finally(() => {
         this._saveInProgress = false;
@@ -988,7 +997,7 @@ const PDFViewerApplication = {
         if (!download) {
           return;
         }
-        PDFViewerApplication.download();
+        PDFViewerApplication.download({ sourceEventType: "download" });
       }
     );
   },
@@ -1165,6 +1174,14 @@ const PDFViewerApplication = {
     this.pdfLinkService.setDocument(pdfDocument, baseDocumentUrl);
     this.pdfDocumentProperties.setDocument(pdfDocument, this.url);
 
+    const annotationStorage = pdfDocument.annotationStorage;
+    annotationStorage.onSetModified = function () {
+      window.addEventListener("beforeunload", beforeUnload);
+    };
+    annotationStorage.onResetModified = function () {
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+
     const pdfViewer = this.pdfViewer;
     pdfViewer.setDocument(pdfDocument);
     const { firstPagePromise, onePageRendered, pagesPromise } = pdfViewer;
@@ -1310,6 +1327,11 @@ const PDFViewerApplication = {
       pdfDocument.getAttachments().then(attachments => {
         this.pdfAttachmentViewer.render({ attachments });
       });
+      // Ensure that the layers accurately reflects the current state in the
+      // viewer itself, rather than the default state provided by the API.
+      pdfViewer.optionalContentConfigPromise.then(optionalContentConfig => {
+        this.pdfLayerViewer.render({ optionalContentConfig, pdfDocument });
+      });
     });
 
     this._initializePageLabels(pdfDocument);
@@ -1418,14 +1440,14 @@ const PDFViewerApplication = {
       this.setTitle(contentDispositionFilename);
     }
 
-    if (info.IsXFAPresent) {
+    if (info.IsXFAPresent && !info.IsAcroFormPresent) {
       console.warn("Warning: XFA is not supported");
       this._delayedFallback(UNSUPPORTED_FEATURES.forms);
     } else if (
-      info.IsAcroFormPresent &&
+      (info.IsAcroFormPresent || info.IsXFAPresent) &&
       !this.pdfViewer.renderInteractiveForms
     ) {
-      console.warn("Warning: AcroForm support is not enabled");
+      console.warn("Warning: Interactive form support is not enabled");
       this._delayedFallback(UNSUPPORTED_FEATURES.forms);
     }
 
@@ -1446,8 +1468,10 @@ const PDFViewerApplication = {
       });
     }
     let formType = null;
-    if (info.IsAcroFormPresent) {
-      formType = info.IsXFAPresent ? "xfa" : "acroform";
+    if (info.IsXFAPresent) {
+      formType = "xfa";
+    } else if (info.IsAcroFormPresent) {
+      formType = "acroform";
     }
     this.externalServices.reportTelemetry({
       type: "documentInfo",
@@ -1657,12 +1681,15 @@ const PDFViewerApplication = {
     const pagesOverview = this.pdfViewer.getPagesOverview();
     const printContainer = this.appConfig.printContainer;
     const printResolution = AppOptions.get("printResolution");
+    const optionalContentConfigPromise = this.pdfViewer
+      .optionalContentConfigPromise;
 
     const printService = PDFPrintServiceFactory.instance.createPrintService(
       this.pdfDocument,
       pagesOverview,
       printContainer,
       printResolution,
+      optionalContentConfigPromise,
       this.l10n
     );
     this.printService = printService;
@@ -1679,6 +1706,10 @@ const PDFViewerApplication = {
     if (this.printService) {
       this.printService.destroy();
       this.printService = null;
+
+      if (this.pdfDocument) {
+        this.pdfDocument.annotationStorage.resetModified();
+      }
     }
     this.forceRendering();
   },
@@ -1722,6 +1753,7 @@ const PDFViewerApplication = {
     eventBus._on("presentationmode", webViewerPresentationMode);
     eventBus._on("print", webViewerPrint);
     eventBus._on("download", webViewerDownload);
+    eventBus._on("save", webViewerSave);
     eventBus._on("firstpage", webViewerFirstPage);
     eventBus._on("lastpage", webViewerLastPage);
     eventBus._on("nextpage", webViewerNextPage);
@@ -1733,6 +1765,7 @@ const PDFViewerApplication = {
     eventBus._on("scalechanged", webViewerScaleChanged);
     eventBus._on("rotatecw", webViewerRotateCw);
     eventBus._on("rotateccw", webViewerRotateCcw);
+    eventBus._on("optionalcontentconfig", webViewerOptionalContentConfig);
     eventBus._on("switchscrollmode", webViewerSwitchScrollMode);
     eventBus._on("scrollmodechanged", webViewerScrollModeChanged);
     eventBus._on("switchspreadmode", webViewerSwitchSpreadMode);
@@ -1742,6 +1775,13 @@ const PDFViewerApplication = {
     eventBus._on("findfromurlhash", webViewerFindFromUrlHash);
     eventBus._on("updatefindmatchescount", webViewerUpdateFindMatchesCount);
     eventBus._on("updatefindcontrolstate", webViewerUpdateFindControlState);
+
+    if (AppOptions.get("pdfBug")) {
+      _boundEvents.reportPageStatsPDFBug = reportPageStatsPDFBug;
+
+      eventBus._on("pagerendered", _boundEvents.reportPageStatsPDFBug);
+      eventBus._on("pagechanging", _boundEvents.reportPageStatsPDFBug);
+    }
     if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
       eventBus._on("fileinputchange", webViewerFileInputChange);
       eventBus._on("openfile", webViewerOpenFile);
@@ -1800,6 +1840,7 @@ const PDFViewerApplication = {
     eventBus._off("presentationmode", webViewerPresentationMode);
     eventBus._off("print", webViewerPrint);
     eventBus._off("download", webViewerDownload);
+    eventBus._off("save", webViewerSave);
     eventBus._off("firstpage", webViewerFirstPage);
     eventBus._off("lastpage", webViewerLastPage);
     eventBus._off("nextpage", webViewerNextPage);
@@ -1811,6 +1852,7 @@ const PDFViewerApplication = {
     eventBus._off("scalechanged", webViewerScaleChanged);
     eventBus._off("rotatecw", webViewerRotateCw);
     eventBus._off("rotateccw", webViewerRotateCcw);
+    eventBus._off("optionalcontentconfig", webViewerOptionalContentConfig);
     eventBus._off("switchscrollmode", webViewerSwitchScrollMode);
     eventBus._off("scrollmodechanged", webViewerScrollModeChanged);
     eventBus._off("switchspreadmode", webViewerSwitchSpreadMode);
@@ -1820,6 +1862,13 @@ const PDFViewerApplication = {
     eventBus._off("findfromurlhash", webViewerFindFromUrlHash);
     eventBus._off("updatefindmatchescount", webViewerUpdateFindMatchesCount);
     eventBus._off("updatefindcontrolstate", webViewerUpdateFindControlState);
+
+    if (_boundEvents.reportPageStatsPDFBug) {
+      eventBus._off("pagerendered", _boundEvents.reportPageStatsPDFBug);
+      eventBus._off("pagechanging", _boundEvents.reportPageStatsPDFBug);
+
+      _boundEvents.reportPageStatsPDFBug = null;
+    }
     if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
       eventBus._off("fileinputchange", webViewerFileInputChange);
       eventBus._off("openfile", webViewerOpenFile);
@@ -1929,6 +1978,20 @@ function loadAndEnablePDFBug(enabledTabs) {
     PDFBug.enable(enabledTabs);
     PDFBug.init({ OPS }, appConfig.mainContainer);
   });
+}
+
+function reportPageStatsPDFBug({ pageNumber }) {
+  if (typeof Stats === "undefined" || !Stats.enabled) {
+    return;
+  }
+  const pageView = PDFViewerApplication.pdfViewer.getPageView(
+    /* index = */ pageNumber - 1
+  );
+  const pageStats = pageView && pageView.pdfPage && pageView.pdfPage.stats;
+  if (!pageStats) {
+    return;
+  }
+  Stats.add(pageNumber, pageStats);
 }
 
 function webViewerInitialized() {
@@ -2091,36 +2154,27 @@ function webViewerResetPermissions() {
   appConfig.viewerContainer.classList.remove(ENABLE_PERMISSIONS_CLASS);
 }
 
-function webViewerPageRendered(evt) {
-  const pageNumber = evt.pageNumber;
-  const pageIndex = pageNumber - 1;
-  const pageView = PDFViewerApplication.pdfViewer.getPageView(pageIndex);
-
+function webViewerPageRendered({ pageNumber, timestamp, error }) {
   // If the page is still visible when it has finished rendering,
   // ensure that the page number input loading indicator is hidden.
   if (pageNumber === PDFViewerApplication.page) {
     PDFViewerApplication.toolbar.updateLoadingIndicatorState(false);
   }
 
-  // Prevent errors in the edge-case where the PDF document is removed *before*
-  // the 'pagerendered' event handler is invoked.
-  if (!pageView) {
-    return;
-  }
-
   // Use the rendered page to set the corresponding thumbnail image.
   if (PDFViewerApplication.pdfSidebar.isThumbnailViewVisible) {
-    const thumbnailView = PDFViewerApplication.pdfThumbnailViewer.getThumbnail(
-      pageIndex
+    const pageView = PDFViewerApplication.pdfViewer.getPageView(
+      /* index = */ pageNumber - 1
     );
-    thumbnailView.setImage(pageView);
+    const thumbnailView = PDFViewerApplication.pdfThumbnailViewer.getThumbnail(
+      /* index = */ pageNumber - 1
+    );
+    if (pageView && thumbnailView) {
+      thumbnailView.setImage(pageView);
+    }
   }
 
-  if (typeof Stats !== "undefined" && Stats.enabled && pageView.stats) {
-    Stats.add(pageNumber, pageView.stats);
-  }
-
-  if (pageView.error) {
+  if (error) {
     PDFViewerApplication.l10n
       .get(
         "rendering_error",
@@ -2128,13 +2182,13 @@ function webViewerPageRendered(evt) {
         "An error occurred while rendering the page."
       )
       .then(msg => {
-        PDFViewerApplication.error(msg, pageView.error);
+        PDFViewerApplication.error(msg, error);
       });
   }
 
   PDFViewerApplication.externalServices.reportTelemetry({
     type: "pageInfo",
-    timestamp: evt.timestamp,
+    timestamp,
   });
   // It is a good time to report stream and font types.
   PDFViewerApplication.pdfDocument.getStats().then(function (stats) {
@@ -2153,11 +2207,14 @@ function webViewerPageMode({ mode }) {
       view = SidebarView.THUMBS;
       break;
     case "bookmarks":
-    case "outline":
+    case "outline": // non-standard
       view = SidebarView.OUTLINE;
       break;
-    case "attachments":
+    case "attachments": // non-standard
       view = SidebarView.ATTACHMENTS;
+      break;
+    case "layers": // non-standard
+      view = SidebarView.LAYERS;
       break;
     case "none":
       view = SidebarView.NONE;
@@ -2170,10 +2227,9 @@ function webViewerPageMode({ mode }) {
 }
 
 function webViewerNamedAction(evt) {
-  // Processing couple of named actions that might be useful.
-  // See also PDFLinkService.executeNamedAction
-  const action = evt.action;
-  switch (action) {
+  // Processing a couple of named actions that might be useful, see also
+  // `PDFLinkService.executeNamedAction`.
+  switch (evt.action) {
     case "GoToPage":
       PDFViewerApplication.appConfig.toolbar.pageNumber.select();
       break;
@@ -2182,6 +2238,16 @@ function webViewerNamedAction(evt) {
       if (!PDFViewerApplication.supportsIntegratedFind) {
         PDFViewerApplication.findBar.toggle();
       }
+      break;
+
+    case "Print":
+      if (PDFViewerApplication.supportsPrinting) {
+        webViewerPrint();
+      }
+      break;
+
+    case "SaveAs":
+      webViewerSave();
       break;
   }
 }
@@ -2232,9 +2298,10 @@ function webViewerUpdateViewarea(evt) {
 
   // Show/hide the loading indicator in the page number input element.
   const currentPage = PDFViewerApplication.pdfViewer.getPageView(
-    PDFViewerApplication.page - 1
+    /* index = */ PDFViewerApplication.page - 1
   );
-  const loading = currentPage.renderingState !== RenderingStates.FINISHED;
+  const loading =
+    (currentPage && currentPage.renderingState) !== RenderingStates.FINISHED;
   PDFViewerApplication.toolbar.updateLoadingIndicatorState(loading);
 }
 
@@ -2334,15 +2401,21 @@ function webViewerPresentationMode() {
 function webViewerPrint() {
   window.print();
 }
-function webViewerDownload() {
+function webViewerDownloadOrSave(sourceEventType) {
   if (
     PDFViewerApplication.pdfDocument &&
     PDFViewerApplication.pdfDocument.annotationStorage.size > 0
   ) {
-    PDFViewerApplication.save();
+    PDFViewerApplication.save({ sourceEventType });
   } else {
-    PDFViewerApplication.download();
+    PDFViewerApplication.download({ sourceEventType });
   }
+}
+function webViewerDownload() {
+  webViewerDownloadOrSave("download");
+}
+function webViewerSave() {
+  webViewerDownloadOrSave("save");
 }
 function webViewerFirstPage() {
   if (PDFViewerApplication.pdfDocument) {
@@ -2398,6 +2471,9 @@ function webViewerRotateCw() {
 function webViewerRotateCcw() {
   PDFViewerApplication.rotatePages(-90);
 }
+function webViewerOptionalContentConfig(evt) {
+  PDFViewerApplication.pdfViewer.optionalContentConfigPromise = evt.promise;
+}
 function webViewerSwitchScrollMode(evt) {
   PDFViewerApplication.pdfViewer.scrollMode = evt.mode;
 }
@@ -2438,12 +2514,18 @@ function webViewerUpdateFindMatchesCount({ matchesCount }) {
   }
 }
 
-function webViewerUpdateFindControlState({ state, previous, matchesCount }) {
+function webViewerUpdateFindControlState({
+  state,
+  previous,
+  matchesCount,
+  rawQuery,
+}) {
   if (PDFViewerApplication.supportsIntegratedFind) {
     PDFViewerApplication.externalServices.updateFindControlState({
       result: state,
       findPrevious: previous,
       matchesCount,
+      rawQuery,
     });
   } else {
     PDFViewerApplication.findBar.updateUIState(state, previous, matchesCount);
@@ -2464,22 +2546,12 @@ function webViewerRotationChanging(evt) {
   PDFViewerApplication.pdfViewer.currentPageNumber = evt.pageNumber;
 }
 
-function webViewerPageChanging(evt) {
-  const page = evt.pageNumber;
-
-  PDFViewerApplication.toolbar.setPageNumber(page, evt.pageLabel || null);
-  PDFViewerApplication.secondaryToolbar.setPageNumber(page);
+function webViewerPageChanging({ pageNumber, pageLabel }) {
+  PDFViewerApplication.toolbar.setPageNumber(pageNumber, pageLabel);
+  PDFViewerApplication.secondaryToolbar.setPageNumber(pageNumber);
 
   if (PDFViewerApplication.pdfSidebar.isThumbnailViewVisible) {
-    PDFViewerApplication.pdfThumbnailViewer.scrollThumbnailIntoView(page);
-  }
-
-  // We need to update stats.
-  if (typeof Stats !== "undefined" && Stats.enabled) {
-    const pageView = PDFViewerApplication.pdfViewer.getPageView(page - 1);
-    if (pageView && pageView.stats) {
-      Stats.add(page, pageView.stats);
-    }
+    PDFViewerApplication.pdfThumbnailViewer.scrollThumbnailIntoView(pageNumber);
   }
 }
 
@@ -2937,6 +3009,12 @@ function webViewerKeyDown(evt) {
   }
 }
 
+function beforeUnload(evt) {
+  evt.preventDefault();
+  evt.returnValue = "";
+  return false;
+}
+
 /**
  * Converts API PageLayout values to the format used by `PDFViewer`.
  * NOTE: This is supported to the extent that the viewer implements the
@@ -2979,7 +3057,7 @@ function apiPageModeToSidebarView(mode) {
     case "UseAttachments":
       return SidebarView.ATTACHMENTS;
     case "UseOC":
-    // Not implemented, since we don't support Optional Content Groups yet.
+      return SidebarView.LAYERS;
   }
   return SidebarView.NONE; // Default value.
 }

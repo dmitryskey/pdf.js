@@ -23,7 +23,8 @@ function composePage(
   pageNumber,
   size,
   printContainer,
-  printResolution
+  printResolution,
+  optionalContentConfigPromise
 ) {
   const canvas = document.createElement("canvas");
 
@@ -40,6 +41,14 @@ function composePage(
   canvasWrapper.appendChild(canvas);
   printContainer.appendChild(canvasWrapper);
 
+  // A callback for a given page may be executed multiple times for different
+  // print operations (think of changing the print settings in the browser).
+  //
+  // Since we don't support queueing multiple render tasks for the same page
+  // (and it'd be racy anyways if painting the page is not done in one go) we
+  // keep track of the last scheduled task in order to properly cancel it before
+  // starting the next one.
+  let currentRenderTask = null;
   canvas.mozPrintCallback = function (obj) {
     // Printing/rendering the page.
     const ctx = obj.context;
@@ -49,25 +58,41 @@ function composePage(
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
 
+    let thisRenderTask = null;
     pdfDocument
       .getPage(pageNumber)
       .then(function (pdfPage) {
+        if (currentRenderTask) {
+          currentRenderTask.cancel();
+          currentRenderTask = null;
+        }
         const renderContext = {
           canvasContext: ctx,
           transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
           viewport: pdfPage.getViewport({ scale: 1, rotation: size.rotation }),
           intent: "print",
           annotationStorage: pdfDocument.annotationStorage,
+          optionalContentConfigPromise,
         };
-        return pdfPage.render(renderContext).promise;
+        currentRenderTask = thisRenderTask = pdfPage.render(renderContext);
+        return thisRenderTask.promise;
       })
       .then(
         function () {
           // Tell the printEngine that rendering this canvas/page has finished.
+          if (currentRenderTask === thisRenderTask) {
+            currentRenderTask = null;
+          }
           obj.done();
         },
         function (error) {
           console.error(error);
+
+          if (currentRenderTask === thisRenderTask) {
+            currentRenderTask.cancel();
+            currentRenderTask = null;
+          }
+
           // Tell the printEngine that rendering this canvas/page has failed.
           // This will make the print process stop.
           if ("abort" in obj) {
@@ -84,12 +109,15 @@ function FirefoxPrintService(
   pdfDocument,
   pagesOverview,
   printContainer,
-  printResolution
+  printResolution,
+  optionalContentConfigPromise = null
 ) {
   this.pdfDocument = pdfDocument;
   this.pagesOverview = pagesOverview;
   this.printContainer = printContainer;
   this._printResolution = printResolution || 150;
+  this._optionalContentConfigPromise =
+    optionalContentConfigPromise || pdfDocument.getOptionalContentConfig();
 }
 
 FirefoxPrintService.prototype = {
@@ -99,6 +127,7 @@ FirefoxPrintService.prototype = {
       pagesOverview,
       printContainer,
       _printResolution,
+      _optionalContentConfigPromise,
     } = this;
 
     const body = document.querySelector("body");
@@ -110,7 +139,8 @@ FirefoxPrintService.prototype = {
         /* pageNumber = */ i + 1,
         pagesOverview[i],
         printContainer,
-        _printResolution
+        _printResolution,
+        _optionalContentConfigPromise
       );
     }
   },
@@ -135,13 +165,15 @@ PDFPrintServiceFactory.instance = {
     pdfDocument,
     pagesOverview,
     printContainer,
-    printResolution
+    printResolution,
+    optionalContentConfigPromise
   ) {
     return new FirefoxPrintService(
       pdfDocument,
       pagesOverview,
       printContainer,
-      printResolution
+      printResolution,
+      optionalContentConfigPromise
     );
   },
 };

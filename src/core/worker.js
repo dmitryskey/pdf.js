@@ -32,7 +32,7 @@ import {
   VerbosityLevel,
   warn,
 } from "../shared/util.js";
-import { clearPrimitiveCaches, Ref } from "./primitives.js";
+import { clearPrimitiveCaches, Dict, Ref } from "./primitives.js";
 import { LocalPdfManager, NetworkPdfManager } from "./pdf_manager.js";
 import { incrementalUpdate } from "./writer.js";
 import { isNodeJS } from "../shared/is_node.js";
@@ -438,10 +438,9 @@ class WorkerMessageHandler {
       });
     });
 
-    handler.on("GetPageIndex", function wphSetupGetPageIndex(data) {
-      var ref = Ref.get(data.ref.num, data.ref.gen);
-      var catalog = pdfManager.pdfDocument.catalog;
-      return catalog.getPageIndex(ref);
+    handler.on("GetPageIndex", function wphSetupGetPageIndex({ ref }) {
+      const pageRef = Ref.get(ref.num, ref.gen);
+      return pdfManager.ensureCatalog("getPageIndex", [pageRef]);
     });
 
     handler.on("GetDestinations", function wphSetupGetDestinations(data) {
@@ -507,7 +506,7 @@ class WorkerMessageHandler {
     });
 
     handler.on("GetStats", function wphSetupGetStats(data) {
-      return pdfManager.pdfDocument.xref.stats;
+      return pdfManager.ensureXRef("stats");
     });
 
     handler.on("GetAnnotations", function ({ pageIndex, intent }) {
@@ -522,7 +521,10 @@ class WorkerMessageHandler {
       filename,
     }) {
       pdfManager.requestLoadedStream();
-      const promises = [pdfManager.onLoadedStream()];
+      const promises = [
+        pdfManager.onLoadedStream(),
+        pdfManager.ensureCatalog("acroForm"),
+      ];
       const document = pdfManager.pdfDocument;
       for (let pageIndex = 0; pageIndex < numPages; pageIndex++) {
         promises.push(
@@ -533,7 +535,7 @@ class WorkerMessageHandler {
         );
       }
 
-      return Promise.all(promises).then(([stream, ...refs]) => {
+      return Promise.all(promises).then(([stream, acroForm, ...refs]) => {
         let newRefs = [];
         for (const ref of refs) {
           newRefs = ref
@@ -546,13 +548,26 @@ class WorkerMessageHandler {
           return stream.bytes;
         }
 
+        const xfa = (acroForm instanceof Dict && acroForm.get("XFA")) || [];
+        let xfaDatasets = null;
+        if (Array.isArray(xfa)) {
+          for (let i = 0, ii = xfa.length; i < ii; i += 2) {
+            if (xfa[i] === "datasets") {
+              xfaDatasets = xfa[i + 1];
+            }
+          }
+        } else {
+          // TODO: Support XFA streams.
+          warn("Unsupported XFA type.");
+        }
+
         const xref = document.xref;
         let newXrefInfo = Object.create(null);
         if (xref.trailer) {
           // Get string info from Info in order to compute fileId
           const _info = Object.create(null);
           const xrefInfo = xref.trailer.get("Info") || null;
-          if (xrefInfo) {
+          if (xrefInfo instanceof Dict) {
             xrefInfo.forEach((key, value) => {
               if (isString(key) && isString(value)) {
                 _info[key] = stringToPDFString(value);
@@ -573,7 +588,13 @@ class WorkerMessageHandler {
         }
         xref.resetNewRef();
 
-        return incrementalUpdate(stream.bytes, newXrefInfo, newRefs);
+        return incrementalUpdate({
+          originalData: stream.bytes,
+          xrefInfo: newXrefInfo,
+          newRefs,
+          xref,
+          datasetsRef: xfaDatasets,
+        });
       });
     });
 
@@ -585,11 +606,6 @@ class WorkerMessageHandler {
           const task = new WorkerTask(`GetOperatorList: page ${pageIndex}`);
           startWorkerTask(task);
 
-          const annotationTask = new WorkerTask(
-            `GetAnnotationAppereances: page ${pageIndex}`
-          );
-          startWorkerTask(annotationTask);
-
           // NOTE: Keep this condition in sync with the `info` helper function.
           const start = verbosity >= VerbosityLevel.INFOS ? Date.now() : 0;
 
@@ -599,7 +615,6 @@ class WorkerMessageHandler {
               handler,
               sink,
               task,
-              annotationTask,
               intent: data.intent,
               renderInteractiveForms: data.renderInteractiveForms,
               annotationStorage: data.annotationStorage,
@@ -607,7 +622,6 @@ class WorkerMessageHandler {
             .then(
               function (operatorListInfo) {
                 finishWorkerTask(task);
-                finishWorkerTask(annotationTask);
 
                 if (start) {
                   info(
@@ -619,8 +633,7 @@ class WorkerMessageHandler {
               },
               function (reason) {
                 finishWorkerTask(task);
-                finishWorkerTask(annotationTask);
-                if (task.terminated && annotationTask.terminated) {
+                if (task.terminated) {
                   return; // ignoring errors from the terminated thread
                 }
                 // For compatibility with older behavior, generating unknown

@@ -778,9 +778,9 @@ class PDFDocumentProxy {
   }
 
   /**
-   * @returns {Promise<OptionalContentConfig | null>} A promise that is resolved
-   *   with an {@link OptionalContentConfig} that has all the optional content
-   *   groups, or `null` if the document does not have any.
+   * @returns {Promise<OptionalContentConfig>} A promise that is resolved with
+   *   an {@link OptionalContentConfig} that contains all the optional content
+   *   groups (assuming that the document has any).
    */
   getOptionalContentConfig() {
     return this._transport.getOptionalContentConfig();
@@ -2536,12 +2536,18 @@ class WorkerTransport {
   }
 
   saveDocument(annotationStorage) {
-    return this.messageHandler.sendWithPromise("SaveDocument", {
-      numPages: this._numPages,
-      annotationStorage:
-        (annotationStorage && annotationStorage.getAll()) || null,
-      filename: this._fullReader.filename,
-    });
+    return this.messageHandler
+      .sendWithPromise("SaveDocument", {
+        numPages: this._numPages,
+        annotationStorage:
+          (annotationStorage && annotationStorage.getAll()) || null,
+        filename: this._fullReader ? this._fullReader.filename : null,
+      })
+      .finally(() => {
+        if (annotationStorage) {
+          annotationStorage.resetModified();
+        }
+      });
   }
 
   getDestinations() {

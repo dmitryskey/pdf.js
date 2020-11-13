@@ -178,7 +178,7 @@ class AnnotationElement {
     ]);
 
     container.style.transform = `matrix(${viewport.transform.join(",")})`;
-    container.style.transformOrigin = `-${rect[0]}px -${rect[1]}px`;
+    container.style.transformOrigin = `${-rect[0]}px ${-rect[1]}px`;
 
     if (!ignoreBorder && data.borderStyle.width > 0 && data.borderColor) {
       container.style.borderWidth = `${data.borderStyle.width}px`;
@@ -628,6 +628,10 @@ class TextWidgetAnnotationElement extends WidgetAnnotationElement {
         storage.setValue(id, event.target.value);
       });
 
+      element.addEventListener("blur", function (event) {
+        event.target.setSelectionRange(0, 0);
+      });
+
       element.disabled = this.data.readOnly;
       element.name = this.data.fieldName;
 
@@ -1070,18 +1074,32 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
     const storage = this.annotationStorage;
     const id = this.data.id;
 
-    let i, ii, style;
+    let style;
     const itemName = encodeURIComponent(this.data.fieldName) + "_item";
 
     const self = this;
 
+    // For printing/saving we currently only support choice widgets with one
+    // option selection. Therefore, listboxes (#12189) and comboboxes (#12224)
+    // are not properly printed/saved yet, so we only store the first item in
+    // the field value array instead of the entire array. Once support for those
+    // two field types is implemented, we should use the same pattern as the
+    // other interactive widgets where the return value of `getOrCreateValue` is
+    // used and the full array of field values is stored.
+    storage.getOrCreateValue(
+      id,
+      this.data.fieldValue.length > 0 ? this.data.fieldValue[0] : null
+    );
+
     if (!this.data.combo) {
       const selectElement = document.createElement("select");
+      selectElement.disabled = this.data.readOnly;
+      selectElement.name = itemName;
+
       selectElement.setAttribute(
         "annotation-name",
         encodeURIComponent(this.data.fieldName)
       );
-      selectElement.disabled = this.data.readOnly;
 
       if (this.data.borderStyle.style === AnnotationBorderStyleType.INSET) {
         selectElement.className = "inset";
@@ -1110,14 +1128,13 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         optionElement.value = option.exportValue;
         if (this.data.fieldValue.includes(option.displayValue)) {
           optionElement.setAttribute("selected", true);
-          storage.setValue(id, option.displayValue);
         }
         selectElement.appendChild(optionElement);
       }
 
       selectElement.onblur = () => {
         self._processDuplicates(selectElement, (a, b) => {
-          for (i = 0; i < a.options.length; i++) {
+          for (let i = 0; i < a.options.length; i++) {
             if (i < b.options.length) {
               b.options[i].setAttribute(
                 "selected",
@@ -1170,6 +1187,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       const comboContent = document.createElement("div");
       comboContent.className = "combo-content";
 
+      this._setElementFont(comboContent);
+
       comboContent.onmouseover = () => {
         comboElement.selected = true;
       };
@@ -1179,12 +1198,12 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       };
 
       comboElement.onkeypress = event => {
-        if ((event.keyCode ? event.keyCode : event.which) === 13) {
-          comboContent.classList.remove(showClass);
+        if (event.key === "Enter") {
+          comboContent.classList.toggle(showClass);
           return;
         }
 
-        const filterChar = String.fromCharCode(event.charCode).toUpperCase();
+        const filterChar = event.key.toUpperCase();
 
         const items = comboContent.getElementsByTagName("a");
         let selectedIndex = -1;
@@ -1192,7 +1211,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         let lastIndex = -1;
         let newIndex = -1;
 
-        for (i = 0; i < items.length; i++) {
+        for (let i = 0; i < items.length; i++) {
           if (
             items[i].classList.contains(hoverClass) &&
             items[i].text[0].toUpperCase() === filterChar
@@ -1215,7 +1234,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
           items[i].classList.remove(hoverClass);
         }
 
-        for (i = 0; i < items.length; i++) {
+        for (let i = 0; i < items.length; i++) {
           if (
             items[i].text &&
             items[i].text.length > 0 &&
@@ -1294,16 +1313,14 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         "8pt " + self._getDefaultFontName()
       ).width;
 
-      for (i = 0, ii = this.data.options.length; i < ii; i++) {
-        const optionItem = this.data.options[i];
-        if (this.data.fieldValue.includes(optionItem.exportValue)) {
-          comboElement.value = optionItem.displayValue;
+      for (const option of this.data.options) {
+        if (this.data.fieldValue.includes(option.exportValue)) {
+          comboElement.value = option.displayValue;
         }
 
         const aElement = document.createElement("a");
-        aElement.setAttribute("value", optionItem.exportValue);
-        aElement.text = optionItem.displayValue;
-        aElement.name = itemName;
+        aElement.value = option.exportValue;
+        aElement.text = option.displayValue;
         aElement.style.padding = aElementPadding + "px";
         if (!style.fontSize) {
           aElement.style.fontSize = "9px";
@@ -1329,6 +1346,7 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         }
 
         aElement.onclick = () => {
+          storage.setValue(id, aElement.text);
           comboElement.value = aElement.text;
           comboContent.classList.remove(showClass);
           self.container.style.position = "";
@@ -1347,8 +1365,8 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
         aElement.onmouseover = () => {
           const items = comboContent.getElementsByTagName("a");
 
-          for (i = 0; i < items.length; i++) {
-            items[i].classList.remove(hoverClass);
+          for (const item of items) {
+            item.classList.remove(hoverClass);
           }
 
           aElement.classList.add(hoverClass);
@@ -1516,12 +1534,13 @@ class PopupAnnotationElement extends AnnotationElement {
 
     // Position the popup next to the parent annotation's container.
     // PDF viewers ignore a popup annotation's rectangle.
-    const parentLeft = parseFloat(parentElement.style.left);
-    const parentWidth = parseFloat(parentElement.style.width);
-    this.container.style.transformOrigin = `-${parentLeft + parentWidth}px -${
-      parentElement.style.top
-    }`;
-    this.container.style.left = `${parentLeft + parentWidth}px`;
+    const parentTop = parseFloat(parentElement.style.top),
+      parentLeft = parseFloat(parentElement.style.left),
+      parentWidth = parseFloat(parentElement.style.width);
+    const popupLeft = parentLeft + parentWidth;
+
+    this.container.style.transformOrigin = `${-popupLeft}px ${-parentTop}px`;
+    this.container.style.left = `${popupLeft}px`;
 
     this.container.appendChild(popup.render());
     return this.container;
@@ -2268,7 +2287,10 @@ class AnnotationLayer {
         linkService: parameters.linkService,
         downloadManager: parameters.downloadManager,
         imageResourcesPath: parameters.imageResourcesPath || "",
-        renderInteractiveForms: parameters.renderInteractiveForms || false,
+        renderInteractiveForms:
+          typeof parameters.renderInteractiveForms === "boolean"
+            ? parameters.renderInteractiveForms
+            : true,
         svgFactory: new DOMSVGFactory(),
         annotationStorage:
           parameters.annotationStorage || new AnnotationStorage(),
