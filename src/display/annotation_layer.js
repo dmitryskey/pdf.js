@@ -1179,6 +1179,11 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
 
       style = comboElement.style;
 
+      const downArrowWidth = self._measureText(
+        "▼",
+        `8pt ${self._getDefaultFontName()}`
+      ).width;
+
       this._setElementFont(comboElement);
 
       this._setBackgroundColor(comboElement, this.data.backgroundColor);
@@ -1307,10 +1312,6 @@ class ChoiceWidgetAnnotationElement extends WidgetAnnotationElement {
       let increaseComboWidth = false;
 
       const aElementPadding = 2;
-      const downArrowWidth = self._measureText(
-        "▼",
-        spanElement.style.fontSize + " " + self._getDefaultFontName()
-      ).width;
 
       for (const optionItem of this.data.options) {
         if (this.data.fieldValue.includes(optionItem.exportValue)) {
