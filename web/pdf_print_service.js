@@ -23,7 +23,10 @@ let overlayManager = null;
 // Renders the page to the SVG format.
 function renderPage(pdfDocument, pageNumber, size) {
   return pdfDocument.getPage(pageNumber).then(pdfPage => {
-    const viewport = pdfPage.getViewport(CSS_UNITS, size.rotation);
+    const viewport = pdfPage.getViewport({
+      scale: CSS_UNITS,
+      rotation: size.rotation,
+    });
     const offset = 20;
     viewport.height -= offset;
     viewport.y += offset;

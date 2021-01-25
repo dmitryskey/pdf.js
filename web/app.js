@@ -932,7 +932,7 @@ const PDFViewerApplication = {
   download() {
     const errorMsg = "PDF failed to download:";
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", this.transformationService);
+    xhr.open("POST", this.transformationService.url);
 
     xhr.setRequestHeader("Content-Type", "application/json");
 
@@ -940,7 +940,7 @@ const PDFViewerApplication = {
       if (xhr.status >= 200 && xhr.status < 300) {
         const respJson = JSON.parse(xhr.response);
 
-        PDFViewerApplication.sessionID = respJson.session_id;
+        PDFViewerApplication.session_id = respJson.session_id;
 
         const binary_string = atob(respJson.form);
         const len = binary_string.length;
@@ -971,8 +971,8 @@ const PDFViewerApplication = {
       this.error(`${errorMsg} ${xhr.statusText}`);
     };
 
-    this.fieldsData.session_id = this.sessionID;
-    xhr.send(JSON.stringify(this.fieldsData));
+    this.transformationService.fields_data.session_id = this.transformationService.session_id;
+    xhr.send(JSON.stringify(this.transformationService.fields_data));
   },
 
   save({ sourceEventType = "download" } = {}) {
@@ -2501,10 +2501,11 @@ function webViewerPresentationMode() {
 function webViewerPrint() {
   window.print();
 }
-function webViewerDownloadOrSave(sourceEventType) {
+function webViewerDownloadOrSave(sourceEventType, alwaysDownload) {
   if (
     PDFViewerApplication.pdfDocument &&
-    PDFViewerApplication.pdfDocument.annotationStorage.size > 0
+    PDFViewerApplication.pdfDocument.annotationStorage.size > 0 &&
+    !alwaysDownload
   ) {
     PDFViewerApplication.save({ sourceEventType });
   } else {
@@ -2512,7 +2513,7 @@ function webViewerDownloadOrSave(sourceEventType) {
   }
 }
 function webViewerDownload() {
-  webViewerDownloadOrSave("download");
+  webViewerDownloadOrSave("download", true);
 }
 function webViewerSave() {
   webViewerDownloadOrSave("save");
