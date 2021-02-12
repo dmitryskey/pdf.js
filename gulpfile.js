@@ -1183,6 +1183,7 @@ gulp.task("types", function (done) {
     "esModuleInterop",
     "forceConsistentCasingInFileNames",
     "emitDeclarationOnly",
+    "typeRoots ./node_modules/@types",
   ].join(" --");
   exec(`"node_modules/.bin/tsc" --${args} src/pdf.js`, done);
 });
